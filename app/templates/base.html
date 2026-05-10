@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{ title or "auto-scrapy" }}</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2rem; line-height: 1.5; }
+    nav a { margin-right: 1rem; }
+    table { border-collapse: collapse; width: 100%; margin-top: 1rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem; text-align: left; vertical-align: top; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f6f6f6; padding: 1rem; }
+    code { background: #f6f6f6; padding: 0.1rem 0.3rem; }
+    .muted { color: #666; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/documents">Documents</a>
+    <a href="/sources">Sources</a>
+    <a href="/runs">Runs</a>
+  </nav>
+  {% block content %}{% endblock %}
+</body>
+</html>

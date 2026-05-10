@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ run.run_kind }}</h1>
+<p><strong>Status:</strong> {{ run.status }}</p>
+<p><strong>Source:</strong>
+  {% if run.source_id %}
+    <a href="/sources/{{ run.source_id }}">{{ run.source_title }}</a>
+  {% else %}
+    -
+  {% endif %}
+</p>
+<p><strong>Discovered:</strong> {{ run.discovered_count }}</p>
+<p><strong>Fetched:</strong> {{ run.fetched_count }}</p>
+<p><strong>Extracted:</strong> {{ run.extracted_count }}</p>
+<p><strong>Log Path:</strong> <code>{{ run.log_path or "-" }}</code></p>
+<p><strong>Log Status:</strong> {{ log_status }}</p>
+<p><strong>Error:</strong> {{ run.error_message or "-" }}</p>
+{% if log_text %}
+<h2>Log</h2>
+<pre>{{ log_text }}</pre>
+{% elif run.log_path %}
+<p><em>Recorded log file is not currently available under the configured logs directory.</em></p>
+{% endif %}
+{% endblock %}

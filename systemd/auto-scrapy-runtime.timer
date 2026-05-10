@@ -1,0 +1,10 @@
+[Unit]
+Description=Schedule bounded auto-scrapy runtime runs
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=30m
+Unit=auto-scrapy-runtime.service
+
+[Install]
+WantedBy=timers.target

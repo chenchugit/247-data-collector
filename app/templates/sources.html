@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Sources</h1>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Title</th>
+      <th>Key</th>
+      <th>Type</th>
+      <th>Documents</th>
+      <th>Runs</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for source in sources %}
+    <tr>
+      <td>{{ source.id }}</td>
+      <td><a href="/sources/{{ source.id }}">{{ source.title }}</a></td>
+      <td><code>{{ source.source_key }}</code></td>
+      <td>{{ source.source_type }}</td>
+      <td>{{ source.document_count }}</td>
+      <td>{{ source.run_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

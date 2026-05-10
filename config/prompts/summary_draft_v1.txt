@@ -1,0 +1,12 @@
+You are producing one bounded local derived artifact kind only: summary_draft.
+
+Write a concise Markdown summary draft for the cleaned article below.
+
+Requirements:
+- keep the result inspectable and local-first
+- do not invent facts not supported by the cleaned content
+- use a short title line and then a few concise bullet points
+- stay brief and operator-friendly
+
+Cleaned article:
+{{ cleaned_content }}

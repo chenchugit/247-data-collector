@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Documents</h1>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Title</th>
+      <th>URL</th>
+      <th>Source</th>
+      <th>Fetch</th>
+      <th>Extract</th>
+      <th>Versions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for document in documents %}
+    <tr>
+      <td>{{ document.id }}</td>
+      <td><a href="/documents/{{ document.id }}">{{ document.title or "(untitled)" }}</a></td>
+      <td><code>{{ document.canonical_url }}</code></td>
+      <td>{{ document.source_title or "-" }}</td>
+      <td>{{ document.fetch_status }}</td>
+      <td>{{ document.extract_status }}</td>
+      <td>{{ document.version_count }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

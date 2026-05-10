@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ document.title or "(untitled)" }}</h1>
+<p><strong>URL:</strong> <code>{{ document.canonical_url }}</code></p>
+<p><strong>Source:</strong>
+  {% if document.source_id %}
+    <a href="/sources/{{ document.source_id }}">{{ document.source_title }}</a>
+  {% else %}
+    -
+  {% endif %}
+</p>
+<p><strong>Author:</strong> {{ document.author or "-" }}</p>
+<p><strong>Published:</strong> {{ document.published_at or "-" }}</p>
+<p><strong>Fetch:</strong> {{ document.fetch_status }}</p>
+<p><strong>Extract:</strong> {{ document.extract_status }}</p>
+<p><strong>Raw Path:</strong>
+  {% if document.current_raw_path %}
+    <a href="/documents/{{ document.id }}/artifacts/raw"><code>{{ document.current_raw_path }}</code></a>
+  {% else %}
+    -
+  {% endif %}
+</p>
+<p><strong>Cleaned Path:</strong>
+  {% if document.current_cleaned_path %}
+    <a href="/documents/{{ document.id }}/artifacts/cleaned"><code>{{ document.current_cleaned_path }}</code></a>
+  {% else %}
+    -
+  {% endif %}
+</p>
+
+<h2>Derived Versions</h2>
+{% if versions %}
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Kind</th>
+      <th>Path</th>
+      <th>Model</th>
+      <th>Prompt</th>
+      <th>Created</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for version in versions %}
+    <tr>
+      <td>{{ version.id }}</td>
+      <td><a href="/versions/{{ version.id }}">{{ version.version_kind }}</a></td>
+      <td><code>{{ version.file_path }}</code></td>
+      <td>{{ version.model_name or "-" }}</td>
+      <td>{{ version.prompt_name or "-" }}</td>
+      <td>{{ version.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="muted">No derived versions recorded.</p>
+{% endif %}
+{% endblock %}

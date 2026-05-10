@@ -1,0 +1,21 @@
+[[sources]]
+source_key = "demo-rss"
+source_type = "rss"
+title = "Demo RSS Feed"
+path = "demo_rss.xml"
+
+[[sources]]
+source_key = "demo-sitemap"
+source_type = "sitemap"
+title = "Demo Sitemap"
+path = "demo_sitemap.xml"
+
+[[sources]]
+source_key = "demo-seed"
+source_type = "seed"
+title = "Demo Seed URLs"
+seeds = [
+  "https://example.com/start",
+  "https://example.com/start#fragment",
+  "https://example.com/docs?id=1",
+]

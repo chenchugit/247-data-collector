@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ version.version_kind }}</h1>
+<p><strong>Document:</strong> <a href="/documents/{{ document.id }}">{{ document.title or document.canonical_url }}</a></p>
+<p><strong>Path:</strong> <code>{{ version.file_path }}</code></p>
+<p><strong>Model:</strong> {{ version.model_name or "-" }}</p>
+<p><strong>Prompt:</strong> {{ version.prompt_name or "-" }}</p>
+<p><strong>Content Hash:</strong> <code>{{ version.content_hash or "-" }}</code></p>
+<pre>{{ content }}</pre>
+{% endblock %}

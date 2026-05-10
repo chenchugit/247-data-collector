@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ source.title }}</h1>
+<p><strong>Key:</strong> <code>{{ source.source_key }}</code></p>
+<p><strong>Type:</strong> {{ source.source_type }}</p>
+<p><strong>Config Path:</strong> <code>{{ source.config_path or "-" }}</code></p>
+<p><strong>Enabled:</strong> {{ source.enabled }}</p>
+
+<h2>Recent Documents</h2>
+<ul>
+  {% for document in documents %}
+  <li><a href="/documents/{{ document.id }}">{{ document.title or document.canonical_url }}</a></li>
+  {% else %}
+  <li class="muted">No documents.</li>
+  {% endfor %}
+</ul>
+
+<h2>Recent Runs</h2>
+<ul>
+  {% for run in runs %}
+  <li><a href="/runs/{{ run.id }}">{{ run.run_kind }}</a> ({{ run.status }})</li>
+  {% else %}
+  <li class="muted">No runs.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

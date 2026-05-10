@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the auto-scrapy pipeline once
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/auto-scrapy/4-auto-scrapy
+ExecStart=/usr/bin/env sh -lc 'uv run python -m app.runtime'
+
