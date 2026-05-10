@@ -228,7 +228,7 @@ source definitions
 
 ## 9. 环境与依赖
 
-当前实现依赖以 [pyproject.toml](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/pyproject.toml:1) 为准：
+当前实现依赖以 **pyproject.toml** 为准：
 
 - Python `>=3.12`
 - Flask
@@ -285,30 +285,29 @@ uv run python scripts/run_regression.py
 
 如果你要按“从读代码到理解系统”的顺序进入，推荐这样看：
 
-1. [app/__init__.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/__init__.py:1)
+1. **app/__init__.py**
    - Flask app factory
-2. [app/config.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/config.py:1)
+2. **app/config.py**
    - 配置入口
-3. [app/db.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/db.py:1)
+3. **app/db.py**
    - schema 与核心数据辅助
-4. [app/discovery.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/discovery.py:1)
-5. [app/fetch.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/fetch.py:1)
-6. [app/extract.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/extract.py:1)
-7. [app/versioning.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/versioning.py:1)
-8. [app/analysis.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/analysis.py:1)
-9. [app/routes.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/routes.py:1)
-10. [app/runtime.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/app/runtime.py:1)
+4. **app/discovery.py**
+5. **app/fetch.py**
+6. **app/extract.py**
+7. **app/versioning.py**
+8. **app/routes.py**
+9. **app/runtime.py**
 
 如果你要按“从验证系统到确认行为”的顺序进入，优先看：
 
-1. [tests/test_db_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_db_smoke.py:1)
-2. [tests/test_discovery_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_discovery_smoke.py:1)
-3. [tests/test_fetch_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_fetch_smoke.py:1)
-4. [tests/test_extract_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_extract_smoke.py:1)
-5. [tests/test_versioning_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_versioning_smoke.py:1)
-6. [tests/test_ui_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_ui_smoke.py:1)
-7. [tests/test_analysis_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_analysis_smoke.py:1)
-8. [tests/test_runtime_smoke.py](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/tests/test_runtime_smoke.py:1)
+1. **tests/test_db_smoke.py**
+2. **tests/test_discovery_smoke.py**
+3. **tests/test_fetch_smoke.py**
+4. **tests/test_extract_smoke.py**
+5. **tests/test_versioning_smoke.py**
+6. **tests/test_ui_smoke.py**
+7. **tests/test_analysis_smoke.py**
+8. **tests/test_runtime_smoke.py**
 
 ## 12. 测试与验证
 
@@ -466,13 +465,13 @@ uv run python scripts/run_regression.py
 
 这些内容应看：
 
-- [DEPLOY_TARGET_1080T.md](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/DEPLOY_TARGET_1080T.md:1)
+- **DEPLOY_TARGET_1080T.md**
 
 ## 17. 相关文档
 
 当前实现目录相关说明文件：
 
-- [AGENTS.md](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/AGENTS.md:1)
-- [DEPLOY_TARGET_1080T.md](/E:/program-data/obsidian/test-folder/XuanXiongMin/Project/Agent/!!!!!!!!!!!!!!OpenClaw/auto-scrapy/4-auto-scrapy/DEPLOY_TARGET_1080T.md:1)
+- **AGENTS.md**
+- **DEPLOY_TARGET_1080T.md**
 
 如果你要看仓库级说明，而不是实现目录说明，再回到根目录 `README.md`。
