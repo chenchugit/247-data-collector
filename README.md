@@ -283,7 +283,7 @@ uv run python scripts/run_regression.py
 
 ## 11. 代码入口与运行入口
 
-如果你要按“从读代码到理解系统”的顺序进入，推荐这样看：
+如果要按“从读代码到理解系统”的顺序进入，推荐这样看：
 
 1. **app/__init__.py**
    - Flask app factory
@@ -298,7 +298,7 @@ uv run python scripts/run_regression.py
 8. **app/routes.py**
 9. **app/runtime.py**
 
-如果你要按“从验证系统到确认行为”的顺序进入，优先看：
+如果要按“从验证系统到确认行为”的顺序进入，优先看：
 
 1. **tests/test_db_smoke.py**
 2. **tests/test_discovery_smoke.py**
@@ -474,4 +474,4 @@ uv run python scripts/run_regression.py
 - **AGENTS.md**
 - **DEPLOY_TARGET_1080T.md**
 
-如果你要看仓库级说明，而不是实现目录说明，再回到根目录 `README.md`。
+如果要看仓库级说明，而不是实现目录说明，再回到根目录 `README.md`。
