@@ -1,8 +1,6 @@
 # auto-scrapy
 
-`4-auto-scrapy/` 是本仓库的正式实现目录。
-
-这里承载的是一个本地优先、磁盘优先的 CS/AI Web 知识采集系统实现，而不是项目级历史讨论区，也不是 OpenClaw 主运行时。
+`4-auto-scrapy/` 是CS/AI Web 知识采集系统的正式实现目录。
 
 ## 1. 当前实现范围
 
@@ -50,7 +48,7 @@
 当前实现目录的关键部分如下：
 
 ```text
-4-auto-scrapy/
+24-data-collector/
 ├── app/
 │   ├── __init__.py
 │   ├── analysis.py
@@ -442,7 +440,7 @@ uv run python scripts/run_regression.py
 
 如果只用一句话描述当前项目状态：
 
-`4-auto-scrapy/` 已经是一个能在开发笔记本上完成 discovery -> fetch -> extract -> summary_draft -> browse -> bounded runtime 的本地实现，但它仍然不是一个已经在 1080 Ti 目标机完成真实长时部署验证的系统。
+`24-data-collector/` 已经是一个能在开发笔记本上完成 discovery -> fetch -> extract -> summary_draft -> browse -> bounded runtime 的本地实现，但它仍然不是一个已经在目标机完成真实长时部署验证的系统。
 
 这句话很重要，因为它同时覆盖了：
 
@@ -453,7 +451,7 @@ uv run python scripts/run_regression.py
 
 当前 README 只描述这个实现目录已经具备的代码与作者机级验证入口。
 
-它不应被理解为以下事项已经在 1080 Ti 目标机完成：
+它不应被理解为以下事项已经在目标机完成：
 
 - Linux 真实依赖安装
 - Flask 目标机启动
@@ -465,13 +463,13 @@ uv run python scripts/run_regression.py
 
 这些内容应看：
 
-- **DEPLOY_TARGET_1080T.md**
+- **DEPLOY_TARGET.md**
 
 ## 17. 相关文档
 
 当前实现目录相关说明文件：
 
 - **AGENTS.md**
-- **DEPLOY_TARGET_1080T.md**
+- **DEPLOY_TARGET.md**
 
 如果要看仓库级说明，而不是实现目录说明，再回到根目录 `README.md`。
