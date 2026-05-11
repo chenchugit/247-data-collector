@@ -1,6 +1,6 @@
 # auto-scrapy
 
-`4-auto-scrapy/` 是CS/AI Web 知识采集系统的正式实现目录。
+`24-data-collector` 是CS/AI Web 知识采集系统的正式实现目录。
 
 ## 1. 当前实现范围
 
