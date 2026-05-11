@@ -251,6 +251,29 @@ uv run python -c "from app.config import load_settings; print(load_settings().da
 uv run python -c "from app.db import init_db; print(init_db())"
 ```
 
+### 7.1.1 Source config files
+
+The implementation keeps two source config roles separate:
+
+- `config/sources/target_smoke_sources.toml` is the normal project default when present, and is the first real 1080 Ti target-machine smoke config.
+- `config/sources/demo_sources.toml` is fixture/regression-only and should be selected explicitly when needed.
+
+The source config selection order is:
+
+1. `--config-path`
+2. `AUTO_SCRAPY_SOURCES_CONFIG_PATH`
+3. `config/sources/target_smoke_sources.toml`
+4. `config/sources/demo_sources.toml` only when the target smoke config is absent
+
+Use an explicit source config path when running fixture/regression checks that need the demo sources:
+
+```powershell
+$env:AUTO_SCRAPY_SOURCES_CONFIG_PATH = "config/sources/demo_sources.toml"
+uv run python -m app.runtime
+```
+
+On Linux/systemd, `systemd/auto-scrapy-runtime.service` still sets `AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml` explicitly so deployment behavior stays inspectable.
+
 ### 7.2 Flask UI
 
 ```powershell

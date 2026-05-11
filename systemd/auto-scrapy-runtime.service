@@ -5,6 +5,6 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-WorkingDirectory=%h/auto-scrapy/4-auto-scrapy
+WorkingDirectory=%h/auto-scrapy/24-data-collector
+Environment=AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml
 ExecStart=/usr/bin/env sh -lc 'uv run python -m app.runtime'
-

@@ -1,7 +1,23 @@
 from pathlib import Path
 
+import app.discovery as discovery
+from app.config import load_settings
 from app.discovery import load_source_definitions, run_discovery
 from app.db import connect_db
+
+
+class FakeXmlResponse:
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+    def __enter__(self) -> "FakeXmlResponse":
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.text.encode("utf-8")
 
 
 def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_path: Path) -> None:
@@ -87,3 +103,102 @@ def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_pat
     assert '"event": "run_started"' in first_log_text
     assert '"event": "discovered_urls"' in first_log_text
     assert '"event": "run_finished"' in first_log_text
+
+
+def test_source_config_default_prefers_target_smoke_and_env_can_override(monkeypatch) -> None:
+    project_root = Path(__file__).resolve().parent.parent
+    target_config = project_root / "config" / "sources" / "target_smoke_sources.toml"
+    demo_config = project_root / "config" / "sources" / "demo_sources.toml"
+
+    monkeypatch.delenv("AUTO_SCRAPY_SOURCES_CONFIG_PATH", raising=False)
+    assert load_settings().sources_config_path == target_config
+
+    monkeypatch.setenv("AUTO_SCRAPY_SOURCES_CONFIG_PATH", str(demo_config))
+    assert load_settings().sources_config_path == demo_config
+
+
+def test_target_smoke_sources_preserve_existing_schema() -> None:
+    config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "target_smoke_sources.toml"
+
+    source_definitions = load_source_definitions(config_path)
+
+    assert [item.source_key for item in source_definitions] == [
+        "arxiv-cs-ai-rss",
+        "anthropic-sitemap",
+        "openai-news",
+        "github-changelog",
+        "google-research-blog",
+    ]
+    assert [item.source_type for item in source_definitions] == [
+        "rss",
+        "sitemap",
+        "seed",
+        "seed",
+        "seed",
+    ]
+    assert source_definitions[0].path == "https://rss.arxiv.org/rss/cs.AI"
+    assert source_definitions[1].path == "https://www.anthropic.com/sitemap.xml"
+
+
+def test_run_discovery_accepts_remote_rss_and_sitemap_paths(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "remote-discovery.sqlite3"
+    log_dir = tmp_path / "data" / "logs"
+    config_path = tmp_path / "remote_sources.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[[sources]]",
+                'source_key = "remote-rss"',
+                'source_type = "rss"',
+                'title = "Remote RSS"',
+                'path = "https://example.com/feed.xml"',
+                "",
+                "[[sources]]",
+                'source_key = "remote-sitemap"',
+                'source_type = "sitemap"',
+                'title = "Remote Sitemap"',
+                'path = "https://example.com/sitemap.xml"',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+        assert timeout == 30
+        if url.endswith("feed.xml"):
+            return FakeXmlResponse(
+                """
+                <rss>
+                  <channel>
+                    <item><link>https://example.com/rss-remote</link></item>
+                  </channel>
+                </rss>
+                """
+            )
+        return FakeXmlResponse(
+            """
+            <urlset>
+              <url><loc>https://example.com/sitemap-remote</loc></url>
+            </urlset>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    results = run_discovery(
+        config_path=config_path,
+        database_path=database_path,
+        log_dir=log_dir,
+    )
+
+    assert [item.source_key for item in results] == ["remote-rss", "remote-sitemap"]
+    assert [item.discovered_count for item in results] == [1, 1]
+
+    with connect_db(database_path) as connection:
+        document_rows = connection.execute(
+            "SELECT canonical_url FROM documents ORDER BY canonical_url"
+        ).fetchall()
+        assert [row["canonical_url"] for row in document_rows] == [
+            "https://example.com/rss-remote",
+            "https://example.com/sitemap-remote",
+        ]

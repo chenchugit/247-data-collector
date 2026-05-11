@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
+from urllib.request import urlopen
 import json
 import tomllib
 import xml.etree.ElementTree as ET
@@ -26,7 +27,7 @@ class SourceDefinition:
     title: str
     enabled: bool
     config_path: Path
-    path: Path | None = None
+    path: Path | str | None = None
     seeds: tuple[str, ...] = ()
 
 
@@ -71,7 +72,14 @@ def load_source_definitions(config_path: Path | None = None) -> list[SourceDefin
         if source_type == "seed" and not seeds:
             raise ValueError(f"{source_key} requires at least one seed URL")
 
-        resolved_path = (path.parent / source_path).resolve() if source_path else None
+        resolved_path = None
+        if source_path:
+            source_path_text = str(source_path)
+            source_path_parts = urlsplit(source_path_text)
+            if source_path_parts.scheme in {"http", "https"}:
+                resolved_path = source_path_text
+            else:
+                resolved_path = (path.parent / source_path_text).resolve()
 
         definitions.append(
             SourceDefinition(
@@ -122,10 +130,15 @@ def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1]
 
 
-def _read_xml_input(path: Path) -> str:
-    if not path.exists():
+def _read_xml_input(path: Path | str) -> str:
+    if isinstance(path, str) and urlsplit(path).scheme in {"http", "https"}:
+        with urlopen(path, timeout=30) as response:
+            return response.read().decode("utf-8")
+
+    local_path = Path(path)
+    if not local_path.exists():
         raise FileNotFoundError(path)
-    return path.read_text(encoding="utf-8")
+    return local_path.read_text(encoding="utf-8")
 
 
 def discover_rss_urls(xml_text: str) -> list[str]:

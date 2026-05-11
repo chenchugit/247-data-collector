@@ -1,0 +1,35 @@
+[[sources]]
+source_key = "arxiv-cs-ai-rss"
+source_type = "rss"
+title = "arXiv cs.AI RSS"
+path = "https://rss.arxiv.org/rss/cs.AI"
+
+[[sources]]
+source_key = "anthropic-sitemap"
+source_type = "sitemap"
+title = "Anthropic Sitemap"
+path = "https://www.anthropic.com/sitemap.xml"
+
+[[sources]]
+source_key = "openai-news"
+source_type = "seed"
+title = "OpenAI News"
+seeds = [
+  "https://openai.com/news/",
+]
+
+[[sources]]
+source_key = "github-changelog"
+source_type = "seed"
+title = "GitHub Changelog"
+seeds = [
+  "https://github.blog/changelog/",
+]
+
+[[sources]]
+source_key = "google-research-blog"
+source_type = "seed"
+title = "Google Research Blog"
+seeds = [
+  "https://research.google/blog/",
+]

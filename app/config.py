@@ -33,11 +33,11 @@ def load_settings() -> Settings:
     config_dir = Path(os.getenv("AUTO_SCRAPY_CONFIG_DIR", ROOT_DIR / "config"))
     prompts_dir = Path(os.getenv("AUTO_SCRAPY_PROMPTS_DIR", config_dir / "prompts"))
     sources_dir = Path(os.getenv("AUTO_SCRAPY_SOURCES_DIR", config_dir / "sources"))
+    default_sources_config_path = sources_dir / "target_smoke_sources.toml"
+    if not default_sources_config_path.exists():
+        default_sources_config_path = sources_dir / "demo_sources.toml"
     sources_config_path = Path(
-        os.getenv(
-            "AUTO_SCRAPY_SOURCES_CONFIG_PATH",
-            sources_dir / "demo_sources.toml",
-        )
+        os.getenv("AUTO_SCRAPY_SOURCES_CONFIG_PATH", default_sources_config_path)
     )
     summary_draft_prompt_path = Path(
         os.getenv(

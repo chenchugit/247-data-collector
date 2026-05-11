@@ -1,6 +1,6 @@
-# DEPLOY_TARGET_1080T
+# DEPLOY_TARGET
 
-本文件是 `4-auto-scrapy/` 在 1080 Ti 目标机上的部署与验证手册。
+本文件是 `24-data-collector/` 在 1080 Ti 目标机上的部署与验证手册。
 
 它只描述目标机应如何安装、验证和启动当前已经在 M1-M10 落地的实现，不把未来能力提前写成既成事实，也不假设目标机上存在 Codex。
 
@@ -8,7 +8,7 @@
 
 目标机职责：
 
-- 作为真实 runtime 机器运行 `4-auto-scrapy/`
+- 作为真实 runtime 机器运行 `24-data-collector/`
 - 安装 Linux 环境下的真实依赖
 - 验证 Flask / SQLite / Ollama / runtime / systemd
 - 承担长时运行
@@ -43,7 +43,7 @@
 建议目标环境：
 
 - OS: `Ubuntu 24.04.x LTS`
-- 项目根目录：`/opt/auto-scrapy/4-auto-scrapy`
+- 项目根目录：`/opt/auto-scrapy/24-data-collector`
 - Python: `3.12+`
 - `uv`
 - `git`
@@ -54,16 +54,16 @@
 
 ## 4. 拷贝代码到目标机
 
-推荐把整个仓库同步过去，但实际运行目录以 `4-auto-scrapy/` 为准。
+推荐把整个仓库同步过去，但实际运行目录以 `24-data-collector/` 为准。
 
 推荐目标路径：
 
 ```bash
 /opt/auto-scrapy/
-└── 4-auto-scrapy/
+└── 24-data-collector/
 ```
 
-如果你只部署实现目录，也要确保 `4-auto-scrapy/` 内文件完整，包括：
+如果你只部署实现目录，也要确保 `24-data-collector/` 内文件完整，包括：
 
 - `app/`
 - `config/`
@@ -79,7 +79,7 @@
 进入实现目录：
 
 ```bash
-cd /opt/auto-scrapy/4-auto-scrapy
+cd /opt/auto-scrapy/24-data-collector
 ```
 
 安装依赖：
@@ -122,7 +122,25 @@ uv run python -c "from app.db import init_db; init_db()"
 uv run python -m app.runtime --help
 ```
 
-### 7.3 跑一条作者机同构的回归命令
+### 7.3 确认真实目标机 smoke source 配置
+
+普通项目运行在 `config/sources/target_smoke_sources.toml` 存在时默认使用它。目标机首次真实 smoke validation 也可以显式设置同一路径，便于 systemd 和人工排查时确认配置来源：
+
+```bash
+export AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml
+```
+
+该文件包含且只包含当前目标机 smoke 的五个真实来源：
+
+- arXiv cs.AI RSS
+- Anthropic sitemap
+- OpenAI News seed
+- GitHub Changelog seed
+- Google Research Blog seed
+
+`config/sources/demo_sources.toml` 只用于显式 fixture / regression，不作为普通项目默认配置，也不作为 1080 Ti 目标机真实 smoke source 配置。
+
+### 7.4 跑一条作者机同构的回归命令
 
 ```bash
 uv run python scripts/run_regression.py
@@ -134,7 +152,7 @@ uv run python scripts/run_regression.py
 - 在目标机上运行它，才算目标机自己的本地回归验证
 - 不应把开发笔记本上的通过结果直接视为目标机已通过
 
-### 7.4 启动 Flask
+### 7.5 启动 Flask
 
 ```bash
 uv run flask --app app run --host 0.0.0.0 --port 5000
@@ -173,7 +191,8 @@ curl http://localhost:11434/api/tags
 
 当前 service 文件内容使用：
 
-- `WorkingDirectory=%h/auto-scrapy/4-auto-scrapy`
+- `WorkingDirectory=%h/auto-scrapy/24-data-collector`
+- `Environment=AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml`
 - `ExecStart=/usr/bin/env sh -lc 'uv run python -m app.runtime'`
 
 这意味着正式部署前通常需要按目标机实际用户和目录做一次对齐。
@@ -302,4 +321,4 @@ uv run python -m app.runtime
 - 项目级全局说明：看仓库根目录 `README.md`
 - 实现目录说明：看 `README.md`
 - systemd 准备文件：看 `systemd/`
-- 当前权威约束：看根 `AGENTS.md`、`4-auto-scrapy/AGENTS.md` 和 `2-action/soruces/`
+- 当前权威约束：看 `24-data-collector/AGENTS.md`
