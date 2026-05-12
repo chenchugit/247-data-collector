@@ -117,27 +117,93 @@ def test_source_config_default_prefers_target_smoke_and_env_can_override(monkeyp
     assert load_settings().sources_config_path == demo_config
 
 
+# def test_target_smoke_sources_preserve_existing_schema() -> None:
+#     config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "target_smoke_sources.toml"
+
+#     source_definitions = load_source_definitions(config_path)
+
+#     assert [item.source_key for item in source_definitions] == [
+#         "arxiv-cs-ai-rss",
+#         "anthropic-sitemap",
+#         "openai-news",
+#         "github-changelog",
+#         "google-research-blog",
+#     ]
+#     assert [item.source_type for item in source_definitions] == [
+#         "rss",
+#         "sitemap",
+#         "seed",
+#         "seed",
+#         "seed",
+#     ]
+#     assert source_definitions[0].path == "https://rss.arxiv.org/rss/cs.AI"
+#     assert source_definitions[1].path == "https://www.anthropic.com/sitemap.xml"
+
+
 def test_target_smoke_sources_preserve_existing_schema() -> None:
     config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "target_smoke_sources.toml"
 
     source_definitions = load_source_definitions(config_path)
 
-    assert [item.source_key for item in source_definitions] == [
+    actual_keys = [item.source_key for item in source_definitions]
+    expected_keys = [
         "arxiv-cs-ai-rss",
-        "anthropic-sitemap",
+        "anthropic-news",
         "openai-news",
         "github-changelog",
         "google-research-blog",
+        "the-ai-summer",
+        "lil-log",
+        "jay-alammar",
+        "colah-blog",
+        "distill",
+        "explained-ai",
+        "jeremy-kun",
+        "math3ma",
+        "sebastian-raschka-blog",
+        "sebastian-ruder",
+        "huggingface-blog",
+        "pytorch-blog",
+        "python-insider",
+        "python-whats-new",
+        "mcp-llmstxt",
+        "langchain-llmstxt",
+        "hl7-fhir-blog",
+        "google-ai-health",
+        "nejm-ai",
+        "radiology-ai",
     ]
-    assert [item.source_type for item in source_definitions] == [
-        "rss",
-        "sitemap",
-        "seed",
-        "seed",
-        "seed",
-    ]
-    assert source_definitions[0].path == "https://rss.arxiv.org/rss/cs.AI"
-    assert source_definitions[1].path == "https://www.anthropic.com/sitemap.xml"
+
+    assert set(actual_keys) == set(expected_keys)
+    assert len(actual_keys) == len(expected_keys)
+
+    actual_types = [item.source_type for item in source_definitions]
+    assert actual_types.count("rss") == 1
+    assert actual_types.count("seed") == 24
+    assert set(actual_types) == {"rss", "seed"}
+
+    source_map = {item.source_key: item for item in source_definitions}
+
+    assert source_map["arxiv-cs-ai-rss"].path == "https://rss.arxiv.org/rss/cs.AI"
+    assert source_map["anthropic-news"].seeds == ("https://www.anthropic.com/news",)
+    assert source_map["the-ai-summer"].seeds == (
+        "https://theaisummer.com/",
+        "https://theaisummer.com/learn-ai/",
+    )
+    assert source_map["distill"].seeds == (
+        "https://distill.pub/",
+        "https://distill.pub/archive/",
+    )
+    assert source_map["explained-ai"].seeds == (
+        "https://explained.ai/",
+        "https://mlbook.explained.ai/",
+    )
+    assert source_map["mcp-llmstxt"].seeds == (
+        "https://modelcontextprotocol.io/llms.txt",
+    )
+    assert source_map["langchain-llmstxt"].seeds == (
+        "https://docs.langchain.com/llms.txt",
+    )
 
 
 def test_run_discovery_accepts_remote_rss_and_sitemap_paths(tmp_path: Path, monkeypatch) -> None:

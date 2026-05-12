@@ -33,11 +33,11 @@ def load_settings() -> Settings:
     config_dir = Path(os.getenv("AUTO_SCRAPY_CONFIG_DIR", ROOT_DIR / "config"))
     prompts_dir = Path(os.getenv("AUTO_SCRAPY_PROMPTS_DIR", config_dir / "prompts"))
     sources_dir = Path(os.getenv("AUTO_SCRAPY_SOURCES_DIR", config_dir / "sources"))
-    default_sources_config_path = sources_dir / "target_smoke_sources.toml"
-    if not default_sources_config_path.exists():
-        default_sources_config_path = sources_dir / "demo_sources.toml"
     sources_config_path = Path(
-        os.getenv("AUTO_SCRAPY_SOURCES_CONFIG_PATH", default_sources_config_path)
+        os.getenv(
+            "AUTO_SCRAPY_SOURCES_CONFIG_PATH",
+            sources_dir / "demo_sources.toml",
+        )
     )
     summary_draft_prompt_path = Path(
         os.getenv(
@@ -65,7 +65,7 @@ def load_settings() -> Settings:
         log_dir=data_dir / "logs",
         database_path=database_path,
         ollama_base_url=os.getenv("AUTO_SCRAPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
-        ollama_model=os.getenv("AUTO_SCRAPY_OLLAMA_MODEL", "llama3.2:3b"),
+        ollama_model=os.getenv("AUTO_SCRAPY_OLLAMA_MODEL", "qwen2.5-coder:7b"),
         ollama_timeout_seconds=int(os.getenv("AUTO_SCRAPY_OLLAMA_TIMEOUT_SECONDS", "120")),
         secret_key=os.getenv("AUTO_SCRAPY_SECRET_KEY", "dev"),
     )

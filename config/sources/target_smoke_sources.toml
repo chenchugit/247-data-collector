@@ -1,3 +1,79 @@
+# =============================================================================
+# production_trial_sources.toml
+#
+# 目标：
+#   作为第一版稳定试运行 source 池，优先保证：
+#   discovery -> fetch -> extract -> summary_draft 能顺利跑通
+#
+# 选择原则：
+#   1. 来自 live connectivity 成功 fetch 的已验证 source
+#   2. 覆盖学习型长文、研究更新、docs 索引、官方产品动态
+#   3. 控制数量，先稳定，再扩展
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# TIER-1 | 核心学习知识库
+# 长文、机制理解、数学/直觉、长期价值最高
+# -----------------------------------------------------------------------------
+
+[[sources]]
+source_key = "the-ai-summer"
+source_type = "seed"
+title = "The AI Summer"
+seeds = [
+  "https://theaisummer.com/",
+  "https://theaisummer.com/learn-ai/",
+]
+
+[[sources]]
+source_key = "lil-log"
+source_type = "seed"
+title = "Lil'Log (Lilian Weng)"
+seeds = [
+  "https://lilianweng.github.io/",
+]
+
+[[sources]]
+source_key = "jay-alammar"
+source_type = "seed"
+title = "Jay Alammar"
+seeds = [
+  "https://jalammar.github.io/",
+]
+
+[[sources]]
+source_key = "colah-blog"
+source_type = "seed"
+title = "Colah's Blog"
+seeds = [
+  "https://colah.github.io/",
+]
+
+[[sources]]
+source_key = "distill"
+source_type = "seed"
+title = "Distill.pub"
+seeds = [
+  "https://distill.pub/",
+  "https://distill.pub/archive/",
+]
+
+[[sources]]
+source_key = "explained-ai"
+source_type = "seed"
+title = "Explained.ai"
+seeds = [
+  "https://explained.ai/",
+  "https://mlbook.explained.ai/",
+]
+
+
+# -----------------------------------------------------------------------------
+# TIER-1 | 研究 / 工程更新
+# 高频更新，结构清晰，适合持续学习与跟踪
+# -----------------------------------------------------------------------------
+
 [[sources]]
 source_key = "arxiv-cs-ai-rss"
 source_type = "rss"
@@ -5,17 +81,11 @@ title = "arXiv cs.AI RSS"
 path = "https://rss.arxiv.org/rss/cs.AI"
 
 [[sources]]
-source_key = "anthropic-sitemap"
-source_type = "sitemap"
-title = "Anthropic Sitemap"
-path = "https://www.anthropic.com/sitemap.xml"
-
-[[sources]]
-source_key = "openai-news"
+source_key = "huggingface-blog"
 source_type = "seed"
-title = "OpenAI News"
+title = "Hugging Face Blog"
 seeds = [
-  "https://openai.com/news/",
+  "https://huggingface.co/blog",
 ]
 
 [[sources]]
@@ -26,6 +96,58 @@ seeds = [
   "https://github.blog/changelog/",
 ]
 
+
+# -----------------------------------------------------------------------------
+# TIER-1 | Agent / Docs 索引
+# 机器可读，后续做本地知识索引非常值钱
+# -----------------------------------------------------------------------------
+
+[[sources]]
+source_key = "mcp-llmstxt"
+source_type = "seed"
+title = "MCP llms.txt"
+seeds = [
+  "https://modelcontextprotocol.io/llms.txt",
+]
+
+[[sources]]
+source_key = "langchain-llmstxt"
+source_type = "seed"
+title = "LangChain llms.txt"
+seeds = [
+  "https://docs.langchain.com/llms.txt",
+]
+
+
+# -----------------------------------------------------------------------------
+# TIER-2 | 官方产品 / 研究发布
+# 一手权威，但比长文教程更偏公告和发布
+# -----------------------------------------------------------------------------
+
+[[sources]]
+source_key = "openai-news"
+source_type = "seed"
+title = "OpenAI News"
+seeds = [
+  "https://openai.com/news/",
+]
+
+[[sources]]
+source_key = "anthropic-news"
+source_type = "seed"
+title = "Anthropic News"
+seeds = [
+  "https://www.anthropic.com/news",
+]
+
+[[sources]]
+source_key = "pytorch-blog"
+source_type = "seed"
+title = "PyTorch Blog"
+seeds = [
+  "https://pytorch.org/blog/",
+]
+
 [[sources]]
 source_key = "google-research-blog"
 source_type = "seed"
@@ -33,3 +155,20 @@ title = "Google Research Blog"
 seeds = [
   "https://research.google/blog/",
 ]
+
+
+# -----------------------------------------------------------------------------
+# 第二波建议（先不要放进 v1）
+# 这些也已成功 fetch，但建议等第一版全链路稳定后再加：
+#
+# python-insider
+# python-whats-new
+# jeremy-kun
+# math3ma
+# hl7-fhir-blog
+# google-ai-health
+#
+# 暂不纳入 v1 的原因：
+# - 有些更偏工程基础或职业垂直补充
+# - 有些价值高，但不是当前最核心试运行项
+# -----------------------------------------------------------------------------

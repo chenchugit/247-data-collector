@@ -1,0 +1,237 @@
+# =========================
+# sources_learning_core.toml
+# 面向：数学、机制理解、长期学习
+# =========================
+
+[[sources]]
+source_key = "the-ai-summer"
+source_type = "seed"
+title = "The AI Summer"
+seeds = [
+  "https://theaisummer.com/",
+  "https://theaisummer.com/learn-ai/",
+]
+
+[[sources]]
+source_key = "lil-log"
+source_type = "seed"
+title = "Lil'Log"
+seeds = [
+  "https://lilianweng.github.io/",
+]
+
+[[sources]]
+source_key = "jay-alammar"
+source_type = "seed"
+title = "Jay Alammar"
+seeds = [
+  "https://jalammar.github.io/",
+]
+
+[[sources]]
+source_key = "colah-blog"
+source_type = "seed"
+title = "Colah's Blog"
+seeds = [
+  "https://colah.github.io/",
+]
+
+[[sources]]
+source_key = "distill"
+source_type = "seed"
+title = "Distill"
+seeds = [
+  "https://distill.pub/",
+  "https://distill.pub/archive/",
+]
+
+[[sources]]
+source_key = "explained-ai"
+source_type = "seed"
+title = "Explained.ai"
+seeds = [
+  "https://explained.ai/",
+  "https://mlbook.explained.ai/",
+]
+
+[[sources]]
+source_key = "jeremy-kun"
+source_type = "seed"
+title = "Jeremy Kun"
+seeds = [
+  "https://www.jeremykun.com/",
+  "https://www.jeremykun.com/primers/",
+]
+
+[[sources]]
+source_key = "math3ma"
+source_type = "seed"
+title = "Math3ma"
+seeds = [
+  "https://www.math3ma.com/",
+  "https://www.math3ma.com/categories",
+]
+
+[[sources]]
+source_key = "sebastian-raschka-blog"
+source_type = "seed"
+title = "Sebastian Raschka Blog"
+seeds = [
+  "https://sebastianraschka.com/blog/",
+]
+
+[[sources]]
+source_key = "sebastian-ruder"
+source_type = "seed"
+title = "Sebastian Ruder"
+seeds = [
+  "https://www.ruder.io/",
+]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# =========================
+# sources_research_updates.toml
+# 面向：论文、框架、工程更新、agents
+# =========================
+
+[[sources]]
+source_key = "arxiv-cs-ai-rss"
+source_type = "rss"
+title = "arXiv cs.AI RSS"
+path = "https://rss.arxiv.org/rss/cs.AI"
+
+[[sources]]
+source_key = "huggingface-blog"
+source_type = "seed"
+title = "Hugging Face Blog"
+seeds = [
+  "https://huggingface.co/blog",
+]
+
+[[sources]]
+source_key = "pytorch-blog"
+source_type = "seed"
+title = "PyTorch Blog"
+seeds = [
+  "https://pytorch.org/blog/",
+]
+
+[[sources]]
+source_key = "google-research-blog"
+source_type = "seed"
+title = "Google Research Blog"
+seeds = [
+  "https://research.google/blog/",
+]
+
+[[sources]]
+source_key = "python-insider"
+source_type = "seed"
+title = "Python Insider"
+seeds = [
+  "https://blog.python.org/",
+]
+
+[[sources]]
+source_key = "python-whats-new"
+source_type = "seed"
+title = "Python What's New"
+seeds = [
+  "https://docs.python.org/3/whatsnew/index.html",
+]
+
+[[sources]]
+source_key = "github-changelog"
+source_type = "seed"
+title = "GitHub Changelog"
+seeds = [
+  "https://github.blog/changelog/",
+]
+
+[[sources]]
+source_key = "mcp-llmstxt"
+source_type = "seed"
+title = "MCP llms.txt"
+seeds = [
+  "https://modelcontextprotocol.io/llms.txt",
+]
+
+[[sources]]
+source_key = "langchain-llmstxt"
+source_type = "seed"
+title = "LangChain llms.txt"
+seeds = [
+  "https://docs.langchain.com/llms.txt",
+]
+
+[[sources]]
+source_key = "openai-news"
+source_type = "seed"
+title = "OpenAI News"
+seeds = [
+  "https://openai.com/news/",
+]
+
+[[sources]]
+source_key = "anthropic-news"
+source_type = "seed"
+title = "Anthropic News"
+seeds = [
+  "https://www.anthropic.com/news",
+]
+
+
+# =========================
+# 3) sources_clinical_ai.toml
+# 面向：医疗AI、医院信息化、互操作
+# =========================
+
+[[sources]]
+source_key = "hl7-fhir-blog"
+source_type = "seed"
+title = "HL7 FHIR Blog"
+seeds = [
+  "https://blog.hl7.org/topic/fhir",
+  "https://blog.hl7.org/all",
+]
+
+[[sources]]
+source_key = "google-ai-health"
+source_type = "seed"
+title = "Google AI and Health"
+seeds = [
+  "https://blog.google/innovation-and-ai/technology/health/",
+  "https://health.google/ai-models",
+]
+
+[[sources]]
+source_key = "nejm-ai"
+source_type = "seed"
+title = "NEJM AI"
+seeds = [
+  "https://ai.nejm.org/",
+  "https://ai.nejm.org/about",
+]
+
+[[sources]]
+source_key = "radiology-ai"
+source_type = "seed"
+title = "Radiology: Artificial Intelligence"
+seeds = [
+  "https://pubs.rsna.org/journal/ai",
+  "https://pubs.rsna.org/toc/ai/current",
+]
