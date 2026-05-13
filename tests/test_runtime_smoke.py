@@ -9,10 +9,23 @@ from app.runtime import run_pipeline_once
 
 class _FetchFixtureHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
+        if self.path == "/":
+            body = b'<html><body><a href="/article">Fixture Article</a></body></html>'
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
         if self.path == "/article":
             body = (
                 b"<html><head><title>Fixture Article</title></head>"
-                b"<body><article><h1>Fixture Article</h1><p>runtime smoke body</p></article></body></html>"
+                b"<body><article><h1>Fixture Article</h1><p>"
+                b"runtime smoke body with enough article detail to pass the quality gate. "
+                b"This fixture includes meaningful technical context, more than a landing page, "
+                b"and enough prose for extraction and downstream summary generation."
+                b"</p></article></body></html>"
             )
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -85,7 +98,7 @@ def test_run_pipeline_once_orchestrates_existing_stages_and_is_repeatable(tmp_pa
                     'source_type = "seed"',
                     'title = "Runtime Seed"',
                     "enabled = true",
-                    f'seeds = ["{base_fetch_url}/article"]',
+                    f'seeds = ["{base_fetch_url}/"]',
                     "",
                 ]
             ),
@@ -136,9 +149,8 @@ def test_run_pipeline_once_orchestrates_existing_stages_and_is_repeatable(tmp_pa
         assert second_result.status == "success"
         assert second_result.source_count == 1
         assert second_result.failed_source_count == 0
-        assert len(_OllamaFixtureHandler.request_payloads) == 2
+        assert len(_OllamaFixtureHandler.request_payloads) == 1
         assert "runtime smoke body" in str(_OllamaFixtureHandler.request_payloads[0]["prompt"])
-        assert "runtime smoke body" in str(_OllamaFixtureHandler.request_payloads[1]["prompt"])
 
         first_runtime_log = tmp_path / Path(first_result.log_path)
         second_runtime_log = tmp_path / Path(second_result.log_path)
@@ -190,7 +202,7 @@ def test_run_pipeline_once_orchestrates_existing_stages_and_is_repeatable(tmp_pa
             assert crawl_runs[3]["extracted_count"] == 1
             assert crawl_runs[5]["fetched_count"] == 0
             assert crawl_runs[6]["extracted_count"] == 0
-            assert crawl_runs[7]["extracted_count"] == 1
+            assert crawl_runs[7]["extracted_count"] == 0
             assert crawl_runs[1]["log_path"] == "data/logs/fetch-run-2.log"
             assert crawl_runs[2]["log_path"] == "data/logs/extract-run-3.log"
             assert crawl_runs[3]["log_path"] == "data/logs/summary-draft-run-4.log"
@@ -221,3 +233,84 @@ def test_run_pipeline_once_orchestrates_existing_stages_and_is_repeatable(tmp_pa
         ollama_server.shutdown()
         ollama_server.server_close()
         ollama_thread.join(timeout=5)
+
+
+def test_run_pipeline_once_can_skip_analysis_with_source_subset(tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class _Result:
+        def __init__(self, source_key: str, crawl_run_id: int, status: str = "success") -> None:
+            self.source_key = source_key
+            self.crawl_run_id = crawl_run_id
+            self.status = status
+            self.log_path = f"data/logs/{source_key}-{crawl_run_id}.log"
+
+    def fake_discovery_stage(**kwargs):
+        assert kwargs["source_keys"] == ("source-a",)
+        calls.append(("discovery", ",".join(kwargs["source_keys"])))
+        return [_Result("source-a", 1)]
+
+    def fake_fetch_stage(**kwargs):
+        calls.append(("fetch", kwargs["source_key"]))
+        return _Result(kwargs["source_key"], 2)
+
+    def fake_extract_stage(**kwargs):
+        calls.append(("extract", kwargs["source_key"]))
+        return _Result(kwargs["source_key"], 3)
+
+    def fake_analysis_stage(**kwargs):
+        calls.append(("analysis", kwargs["source_key"]))
+        return _Result(kwargs["source_key"], 4)
+
+    result = run_pipeline_once(
+        database_path=tmp_path / "runtime-skip.sqlite3",
+        log_dir=tmp_path / "data" / "logs",
+        run_analysis=False,
+        source_keys=("source-a",),
+        run_discovery_stage=fake_discovery_stage,
+        run_fetch_stage=fake_fetch_stage,
+        run_extract_stage=fake_extract_stage,
+        run_analysis_stage=fake_analysis_stage,
+    )
+
+    assert result.status == "success"
+    assert calls == [
+        ("discovery", "source-a"),
+        ("fetch", "source-a"),
+        ("extract", "source-a"),
+    ]
+    assert [stage.stage_name for stage in result.sources[0].stages] == ["fetch", "extract"]
+
+
+def test_run_pipeline_once_passes_analysis_limit_per_source(tmp_path: Path) -> None:
+    received_limits: list[int | None] = []
+
+    class _Result:
+        def __init__(self, source_key: str, crawl_run_id: int, status: str = "success") -> None:
+            self.source_key = source_key
+            self.crawl_run_id = crawl_run_id
+            self.status = status
+            self.log_path = f"data/logs/{source_key}-{crawl_run_id}.log"
+
+    def fake_discovery_stage(**kwargs):
+        return [_Result("source-a", 1)]
+
+    def fake_stage(**kwargs):
+        return _Result(kwargs["source_key"], 2)
+
+    def fake_analysis_stage(**kwargs):
+        received_limits.append(kwargs["max_documents"])
+        return _Result(kwargs["source_key"], 3)
+
+    result = run_pipeline_once(
+        database_path=tmp_path / "runtime-cap.sqlite3",
+        log_dir=tmp_path / "data" / "logs",
+        analysis_limit_per_source=2,
+        run_discovery_stage=fake_discovery_stage,
+        run_fetch_stage=fake_stage,
+        run_extract_stage=fake_stage,
+        run_analysis_stage=fake_analysis_stage,
+    )
+
+    assert result.status == "success"
+    assert received_limits == [2]

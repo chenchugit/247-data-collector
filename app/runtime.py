@@ -482,6 +482,9 @@ def run_pipeline_once(
     model_name: str | None = None,
     base_url: str | None = None,
     timeout_seconds: int | None = None,
+    run_analysis: bool = True,
+    analysis_limit_per_source: int | None = None,
+    source_keys: tuple[str, ...] | None = None,
     run_discovery_stage=run_discovery,
     run_fetch_stage=_run_fetch_isolated,   # ← was run_fetch (Reactor bug)
     run_extract_stage=run_extract,
@@ -503,7 +506,11 @@ def run_pipeline_once(
         },
     )
 
-    discovery_results = run_discovery_stage(config_path=config_path, database_path=db_path)
+    discovery_results = run_discovery_stage(
+        config_path=config_path,
+        database_path=db_path,
+        source_keys=source_keys,
+    )
     source_summaries: list[RuntimeSourceSummary] = []
     failed_source_count = 0
 
@@ -521,7 +528,7 @@ def run_pipeline_once(
             },
         )
 
-        stage_specs = (
+        stage_specs = [
             (
                 "fetch",
                 run_fetch_stage,
@@ -543,7 +550,10 @@ def run_pipeline_once(
                     "log_dir": log_dir,
                 },
             ),
-            (
+        ]
+        if run_analysis:
+            stage_specs.append(
+                (
                 "summary_draft",
                 run_analysis_stage,
                 {
@@ -556,9 +566,10 @@ def run_pipeline_once(
                     "model_name": model_name,
                     "base_url": base_url,
                     "timeout_seconds": timeout_seconds,
+                    "max_documents": analysis_limit_per_source,
                 },
-            ),
-        )
+                )
+            )
 
         for stage_name, stage_runner, stage_kwargs in stage_specs:
             _append_log(
@@ -671,6 +682,9 @@ def _build_parser() -> ArgumentParser:
     parser.add_argument("--model-name", default=None)
     parser.add_argument("--base-url", default=None)
     parser.add_argument("--timeout-seconds", type=int, default=None)
+    parser.add_argument("--skip-analysis", action="store_true")
+    parser.add_argument("--analysis-limit-per-source", type=int, default=None)
+    parser.add_argument("--source-key", action="append", default=None)
     return parser
 
 
@@ -688,6 +702,9 @@ def main() -> int:
         model_name=args.model_name,
         base_url=args.base_url,
         timeout_seconds=args.timeout_seconds,
+        run_analysis=not args.skip_analysis,
+        analysis_limit_per_source=args.analysis_limit_per_source,
+        source_keys=tuple(args.source_key) if args.source_key else None,
     )
     print(json.dumps(asdict(result), ensure_ascii=True))
     return 0 if result.status == "success" else 1

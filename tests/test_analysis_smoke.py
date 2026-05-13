@@ -124,6 +124,7 @@ def test_run_summary_draft_reads_cleaned_content_calls_ollama_and_records_failur
     assert result.source_key == "fixture-summary"
     assert result.generated_count == 1
     assert result.failed_count == 1
+    assert result.skipped_count == 0
     assert result.status == "partial_failure"
     assert result.log_path == "data/logs/summary-draft-run-1.log"
     assert result.model_name == "fixture-model"
@@ -183,3 +184,83 @@ def test_run_summary_draft_reads_cleaned_content_calls_ollama_and_records_failur
     assert '"status": "generated"' in log_text
     assert '"status": "generate_failed"' in log_text
     assert '"event": "run_finished"' in log_text
+
+
+def test_run_summary_draft_skips_unchanged_cleaned_content(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "analysis-skip.sqlite3"
+    data_dir = tmp_path / "data"
+    cleaned_dir = data_dir / "cleaned"
+    derived_dir = data_dir / "derived"
+    log_dir = data_dir / "logs"
+    prompt_path = tmp_path / "summary_draft_fixture.txt"
+
+    init_db(database_path)
+
+    article_url = "https://fixture.example/article"
+    cleaned_relative_path = build_cleaned_artifact_relative_path(article_url)
+    cleaned_path = cleaned_dir / cleaned_relative_path
+    cleaned_path.parent.mkdir(parents=True, exist_ok=True)
+    cleaned_path.write_text("# Fixture Article\n\nUseful cleaned content.\n", encoding="utf-8")
+    prompt_path.write_text("Summarize.\n\n{{ cleaned_content }}\n", encoding="utf-8")
+
+    with connect_db(database_path) as connection:
+        source_id = upsert_source(
+            connection,
+            source_key="fixture-summary-skip",
+            source_type="seed",
+            title="Fixture Summary Skip Source",
+            config_path="tests/fixture-summary-skip",
+        )
+        record_discovered_documents(
+            connection,
+            source_id=source_id,
+            canonical_urls=[article_url],
+        )
+        article_row = connection.execute(
+            "SELECT id FROM documents WHERE canonical_url = ?",
+            (article_url,),
+        ).fetchone()
+        assert article_row is not None
+        update_document_extract_state(
+            connection,
+            document_id=int(article_row["id"]),
+            extract_status="extracted",
+            current_cleaned_path=str((Path("data") / "cleaned" / cleaned_relative_path).as_posix()),
+            title="Fixture Article",
+        )
+
+    calls = 0
+
+    def fake_generate(**kwargs) -> str:
+        nonlocal calls
+        calls += 1
+        return "# Summary\n\nUseful cleaned content.\n"
+
+    first_result = run_summary_draft(
+        source_key="fixture-summary-skip",
+        database_path=database_path,
+        cleaned_dir=cleaned_dir,
+        derived_dir=derived_dir,
+        log_dir=log_dir,
+        prompt_path=prompt_path,
+        model_name="fixture-model",
+        generate_summary=fake_generate,
+    )
+    second_result = run_summary_draft(
+        source_key="fixture-summary-skip",
+        database_path=database_path,
+        cleaned_dir=cleaned_dir,
+        derived_dir=derived_dir,
+        log_dir=log_dir,
+        prompt_path=prompt_path,
+        model_name="fixture-model",
+        generate_summary=fake_generate,
+    )
+
+    assert calls == 1
+    assert first_result.generated_count == 1
+    assert first_result.skipped_count == 0
+    assert second_result.generated_count == 0
+    assert second_result.skipped_count == 1

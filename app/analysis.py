@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 from urllib import error, request
 import json
@@ -8,6 +9,7 @@ from .db import (
     connect_db,
     finish_crawl_run,
     get_source_id_by_key,
+    get_document_version_for_source_content,
     init_db,
     list_documents_for_analysis,
     start_crawl_run,
@@ -25,6 +27,7 @@ class SummaryDraftRunResult:
     crawl_run_id: int
     generated_count: int
     failed_count: int
+    skipped_count: int
     log_path: str
     status: str
     model_name: str
@@ -103,6 +106,7 @@ def run_summary_draft(
     model_name: str | None = None,
     base_url: str | None = None,
     timeout_seconds: int | None = None,
+    max_documents: int | None = None,
     generate_summary=generate_summary_draft_with_ollama,
 ) -> SummaryDraftRunResult:
     settings = load_settings()
@@ -152,10 +156,14 @@ def run_summary_draft(
     )
     generated_count = 0
     failed_count = 0
+    skipped_count = 0
     errors: list[str] = []
     prompt_name = prompt_file.stem
 
     for document in documents:
+        if max_documents is not None and generated_count >= max_documents:
+            break
+
         document_id = int(document["id"])
         canonical_url = str(document["canonical_url"])
         current_cleaned_path = str(document["current_cleaned_path"])
@@ -163,6 +171,33 @@ def run_summary_draft(
 
         try:
             cleaned_text = cleaned_path.read_text(encoding="utf-8")
+            source_content_hash = sha256(cleaned_text.encode("utf-8")).hexdigest()
+            with connect_db(db_path) as connection:
+                existing_version = get_document_version_for_source_content(
+                    connection,
+                    document_id=document_id,
+                    version_kind=SUMMARY_DRAFT_VERSION_KIND,
+                    model_name=active_model_name,
+                    prompt_name=prompt_name,
+                    source_content_hash=source_content_hash,
+                )
+            if existing_version is not None:
+                skipped_count += 1
+                _append_log(
+                    log_path,
+                    {
+                        "url": canonical_url,
+                        "document_id": document_id,
+                        "status": "skipped_unchanged",
+                        "version_kind": SUMMARY_DRAFT_VERSION_KIND,
+                        "version_id": int(existing_version["id"]),
+                        "file_path": str(existing_version["file_path"]),
+                        "model_name": active_model_name,
+                        "prompt_name": prompt_name,
+                    },
+                )
+                continue
+
             summary_text = generate_summary(
                 cleaned_text=cleaned_text,
                 model_name=active_model_name,
@@ -179,6 +214,7 @@ def run_summary_draft(
                 database_path=db_path,
                 cleaned_dir=cleaned_root,
                 derived_dir=derived_root,
+                source_content_hash=source_content_hash,
             )
 
             generated_count += 1
@@ -229,6 +265,7 @@ def run_summary_draft(
             "status": status,
             "generated_count": generated_count,
             "failed_count": failed_count,
+            "skipped_count": skipped_count,
             "model_name": active_model_name,
             "prompt_name": prompt_name,
             "log_path": relative_log_path,
@@ -251,6 +288,7 @@ def run_summary_draft(
         crawl_run_id=crawl_run_id,
         generated_count=generated_count,
         failed_count=failed_count,
+        skipped_count=skipped_count,
         log_path=relative_log_path,
         status=status,
         model_name=active_model_name,

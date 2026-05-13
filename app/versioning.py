@@ -62,6 +62,7 @@ def persist_document_version(
     content: str | bytes,
     model_name: str | None = None,
     prompt_name: str | None = None,
+    source_content_hash: str | None = None,
     extension: str = "md",
     database_path: Path | None = None,
     cleaned_dir: Path | None = None,
@@ -109,6 +110,7 @@ def persist_document_version(
             model_name=model_name,
             prompt_name=prompt_name,
             content_hash=content_hash,
+            source_content_hash=source_content_hash,
         )
 
     return StoredDocumentVersion(

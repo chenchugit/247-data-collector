@@ -36,7 +36,7 @@ def load_settings() -> Settings:
     sources_config_path = Path(
         os.getenv(
             "AUTO_SCRAPY_SOURCES_CONFIG_PATH",
-            sources_dir / "demo_sources.toml",
+            sources_dir / "target_smoke_sources.toml",
         )
     )
     summary_draft_prompt_path = Path(

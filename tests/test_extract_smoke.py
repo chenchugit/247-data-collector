@@ -30,7 +30,11 @@ def test_run_extract_consumes_current_raw_path_persists_cleaned_and_records_fail
     written_raw_path.parent.mkdir(parents=True, exist_ok=True)
     written_raw_path.write_text(
         "<html><head><title>Fixture Article</title></head>"
-        "<body><article><h1>Fixture Article</h1><p>Useful extracted content.</p></article></body></html>",
+        "<body><article><h1>Fixture Article</h1><p>"
+        "Useful extracted content with enough detail to pass the quality gate. "
+        "This paragraph describes a concrete technical topic, includes meaningful context, "
+        "and provides enough article-like body text for downstream processing."
+        "</p></article></body></html>",
         encoding="utf-8",
     )
 
@@ -111,7 +115,7 @@ def test_run_extract_consumes_current_raw_path_persists_cleaned_and_records_fail
         assert cleaned_path.exists()
         cleaned_text = cleaned_path.read_text(encoding="utf-8")
         assert "Fixture Article" in cleaned_text
-        assert "Useful extracted content." in cleaned_text
+        assert "Useful extracted content with enough detail" in cleaned_text
 
         assert missing_row["extract_status"] == "extract_failed"
         assert missing_row["current_cleaned_path"] is None
@@ -138,3 +142,74 @@ def test_run_extract_consumes_current_raw_path_persists_cleaned_and_records_fail
     assert '"status": "extracted"' in log_text
     assert '"status": "extract_failed"' in log_text
     assert '"event": "run_finished"' in log_text
+
+
+def test_run_extract_rejects_thin_landing_page_content(tmp_path: Path) -> None:
+    database_path = tmp_path / "extract-thin.sqlite3"
+    data_dir = tmp_path / "data"
+    raw_dir = data_dir / "raw"
+    cleaned_dir = data_dir / "cleaned"
+    log_dir = data_dir / "logs"
+
+    init_db(database_path)
+
+    thin_url = "https://fixture.example/"
+    relative_raw_path = build_raw_artifact_relative_path(thin_url, "text/html; charset=utf-8")
+    written_raw_path = raw_dir / relative_raw_path
+    written_raw_path.parent.mkdir(parents=True, exist_ok=True)
+    written_raw_path.write_text(
+        """
+        <html><head><title>Home</title></head>
+        <body>
+          <nav><a href="/a">A</a><a href="/b">B</a></nav>
+          <main><p>Welcome. Latest posts and links.</p></main>
+        </body></html>
+        """,
+        encoding="utf-8",
+    )
+
+    with connect_db(database_path) as connection:
+        source_id = upsert_source(
+            connection,
+            source_key="fixture-extract-thin",
+            source_type="seed",
+            title="Fixture Extract Thin Source",
+            config_path="tests/fixture-extract-thin",
+        )
+        record_discovered_documents(
+            connection,
+            source_id=source_id,
+            canonical_urls=[thin_url],
+        )
+        row = connection.execute(
+            "SELECT id FROM documents WHERE canonical_url = ?",
+            (thin_url,),
+        ).fetchone()
+        assert row is not None
+        update_document_fetch_state(
+            connection,
+            document_id=int(row["id"]),
+            fetch_status="fetched",
+            current_raw_path=str((Path("data") / "raw" / relative_raw_path).as_posix()),
+        )
+
+    result = run_extract(
+        source_key="fixture-extract-thin",
+        database_path=database_path,
+        raw_dir=raw_dir,
+        cleaned_dir=cleaned_dir,
+        log_dir=log_dir,
+    )
+
+    assert result.extracted_count == 0
+    assert result.failed_count == 1
+    assert result.status == "failed"
+
+    with connect_db(database_path) as connection:
+        row = connection.execute(
+            "SELECT extract_status, current_cleaned_path FROM documents WHERE canonical_url = ?",
+            (thin_url,),
+        ).fetchone()
+        assert row is not None
+        assert row["extract_status"] == "rejected_low_quality"
+        assert row["current_cleaned_path"] is None

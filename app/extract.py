@@ -22,6 +22,9 @@ from .db import (
 
 
 EXTRACT_RUN_KIND = "extract:trafilatura"
+MIN_CLEANED_CHARS = 180
+MIN_CLEANED_WORDS = 30
+LOW_QUALITY_STATUS = "rejected_low_quality"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,11 @@ class ExtractionOutput:
     author: str | None = None
     published_at: str | None = None
     extractor_name: str = "trafilatura"
+    link_text_ratio: float = 0.0
+
+
+class LowQualityContentError(ValueError):
+    pass
 
 
 class _FallbackHTMLTextParser(HTMLParser):
@@ -48,20 +56,26 @@ class _FallbackHTMLTextParser(HTMLParser):
         super().__init__()
         self.in_title = False
         self.ignored_depth = 0
+        self.link_depth = 0
         self.title_chunks: list[str] = []
         self.text_chunks: list[str] = []
+        self.link_text_length = 0
 
     def handle_starttag(self, tag: str, attrs) -> None:
         if tag == "title":
             self.in_title = True
-        if tag in {"script", "style", "noscript"}:
+        if tag in {"script", "style", "noscript", "nav", "header", "footer", "aside"}:
             self.ignored_depth += 1
+        if tag == "a":
+            self.link_depth += 1
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "title":
             self.in_title = False
-        if tag in {"script", "style", "noscript"} and self.ignored_depth:
+        if tag in {"script", "style", "noscript", "nav", "header", "footer", "aside"} and self.ignored_depth:
             self.ignored_depth -= 1
+        if tag == "a" and self.link_depth:
+            self.link_depth -= 1
 
     def handle_data(self, data: str) -> None:
         if self.ignored_depth:
@@ -75,6 +89,8 @@ class _FallbackHTMLTextParser(HTMLParser):
             self.title_chunks.append(value)
         else:
             self.text_chunks.append(value)
+            if self.link_depth:
+                self.link_text_length += len(value)
 
     def build_output(self) -> ExtractionOutput | None:
         cleaned_text = "\n\n".join(self.text_chunks).strip()
@@ -82,10 +98,12 @@ class _FallbackHTMLTextParser(HTMLParser):
             return None
 
         title = " ".join(self.title_chunks).strip() or None
+        link_text_ratio = self.link_text_length / max(len(cleaned_text), 1)
         return ExtractionOutput(
             cleaned_text=cleaned_text,
             title=title,
             extractor_name="fallback_html",
+            link_text_ratio=link_text_ratio,
         )
 
 
@@ -128,6 +146,19 @@ def _looks_like_html(raw_bytes: bytes, current_raw_path: str) -> bool:
     return b"<html" in sample or b"<!doctype html" in sample
 
 
+def _quality_check(output: ExtractionOutput) -> None:
+    text = re.sub(r"\s+", " ", output.cleaned_text).strip()
+    word_count = len(re.findall(r"\b\w+\b", text))
+    if len(text) < MIN_CLEANED_CHARS or word_count < MIN_CLEANED_WORDS:
+        raise LowQualityContentError(
+            f"cleaned content is too short ({len(text)} chars, {word_count} words)"
+        )
+    if output.extractor_name == "fallback_html" and output.link_text_ratio > 0.45:
+        raise LowQualityContentError(
+            f"fallback output is nav-heavy ({output.link_text_ratio:.2f} link text ratio)"
+        )
+
+
 def extract_cleaned_content(raw_bytes: bytes, current_raw_path: str) -> ExtractionOutput:
     text = raw_bytes.decode("utf-8", errors="replace")
     extracted = trafilatura.extract(
@@ -140,19 +171,22 @@ def extract_cleaned_content(raw_bytes: bytes, current_raw_path: str) -> Extracti
     )
     if extracted:
         metadata = extract_metadata(text)
-        return ExtractionOutput(
+        output = ExtractionOutput(
             cleaned_text=extracted.strip(),
             title=metadata.title if metadata else None,
             author=metadata.author if metadata else None,
             published_at=metadata.date if metadata else None,
             extractor_name="trafilatura",
         )
+        _quality_check(output)
+        return output
 
     if _looks_like_html(raw_bytes, current_raw_path):
         parser = _FallbackHTMLTextParser()
         parser.feed(text)
         fallback_output = parser.build_output()
         if fallback_output is not None:
+            _quality_check(fallback_output)
             return fallback_output
 
     raise ValueError("extractor produced no cleaned content")
@@ -243,6 +277,27 @@ def run_extract(
                     "status": "extracted",
                     "cleaned_path": stored_cleaned_path,
                     "extractor": output.extractor_name,
+                },
+            )
+        except LowQualityContentError as exc:
+            failed_count += 1
+            error_text = f"{canonical_url}: {exc}"
+            errors.append(error_text)
+
+            with connect_db(db_path) as connection:
+                update_document_extract_state(
+                    connection,
+                    document_id=document_id,
+                    extract_status=LOW_QUALITY_STATUS,
+                )
+
+            _append_log(
+                log_path,
+                {
+                    "url": canonical_url,
+                    "document_id": document_id,
+                    "status": LOW_QUALITY_STATUS,
+                    "error": str(exc),
                 },
             )
         except Exception as exc:

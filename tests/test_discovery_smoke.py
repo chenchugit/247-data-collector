@@ -9,6 +9,7 @@ from app.db import connect_db
 class FakeXmlResponse:
     def __init__(self, text: str) -> None:
         self.text = text
+        self.headers = self
 
     def __enter__(self) -> "FakeXmlResponse":
         return self
@@ -19,8 +20,14 @@ class FakeXmlResponse:
     def read(self) -> bytes:
         return self.text.encode("utf-8")
 
+    def get_content_charset(self) -> str:
+        return "utf-8"
 
-def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_path: Path) -> None:
+
+def test_run_discovery_loads_sources_records_candidates_and_deduplicates(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     database_path = tmp_path / "discovery.sqlite3"
     log_dir = tmp_path / "data" / "logs"
     config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "demo_sources.toml"
@@ -31,6 +38,30 @@ def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_pat
         "demo-sitemap",
         "demo-seed",
     ]
+
+    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+        if url == "https://example.com/start":
+            return FakeXmlResponse(
+                """
+                <html><body>
+                  <a href="/article-1">Article 1</a>
+                  <a href="/category/news">Category</a>
+                  <a href="https://external.example/article">External</a>
+                </body></html>
+                """
+            )
+        if url == "https://example.com/docs?id=1":
+            return FakeXmlResponse(
+                """
+                <html><body>
+                  <a href="/article-2">Article 2</a>
+                  <a href="/feed.xml">Feed</a>
+                </body></html>
+                """
+            )
+        raise AssertionError(f"unexpected URL: {url}")
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
 
     first_results = run_discovery(
         config_path=config_path,
@@ -44,7 +75,7 @@ def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_pat
     )
 
     assert [item.discovered_count for item in first_results] == [2, 3, 2]
-    assert [item.inserted_count for item in first_results] == [2, 2, 0]
+    assert [item.inserted_count for item in first_results] == [2, 2, 2]
     assert all(item.status == "success" for item in first_results)
     assert all(item.log_path.startswith("data/logs/discovery-run-") for item in first_results)
     assert [item.discovered_count for item in second_results] == [2, 3, 2]
@@ -69,6 +100,8 @@ def test_run_discovery_loads_sources_records_candidates_and_deduplicates(tmp_pat
             """
         ).fetchall()
         assert [row["canonical_url"] for row in document_rows] == [
+            "https://example.com/article-1",
+            "https://example.com/article-2",
             "https://example.com/docs?id=1",
             "https://example.com/rss-only",
             "https://example.com/sitemap-only",
@@ -147,31 +180,21 @@ def test_target_smoke_sources_preserve_existing_schema() -> None:
 
     actual_keys = [item.source_key for item in source_definitions]
     expected_keys = [
-        "arxiv-cs-ai-rss",
-        "anthropic-news",
-        "openai-news",
-        "github-changelog",
-        "google-research-blog",
         "the-ai-summer",
         "lil-log",
         "jay-alammar",
         "colah-blog",
         "distill",
         "explained-ai",
-        "jeremy-kun",
-        "math3ma",
-        "sebastian-raschka-blog",
-        "sebastian-ruder",
+        "arxiv-cs-ai-rss",
         "huggingface-blog",
-        "pytorch-blog",
-        "python-insider",
-        "python-whats-new",
+        "github-changelog",
         "mcp-llmstxt",
         "langchain-llmstxt",
-        "hl7-fhir-blog",
-        "google-ai-health",
-        "nejm-ai",
-        "radiology-ai",
+        "openai-news",
+        "anthropic-news",
+        "pytorch-blog",
+        "google-research-blog",
     ]
 
     assert set(actual_keys) == set(expected_keys)
@@ -179,7 +202,7 @@ def test_target_smoke_sources_preserve_existing_schema() -> None:
 
     actual_types = [item.source_type for item in source_definitions]
     assert actual_types.count("rss") == 1
-    assert actual_types.count("seed") == 24
+    assert actual_types.count("seed") == 14
     assert set(actual_types) == {"rss", "seed"}
 
     source_map = {item.source_key: item for item in source_definitions}
@@ -264,7 +287,82 @@ def test_run_discovery_accepts_remote_rss_and_sitemap_paths(tmp_path: Path, monk
         document_rows = connection.execute(
             "SELECT canonical_url FROM documents ORDER BY canonical_url"
         ).fetchall()
-        assert [row["canonical_url"] for row in document_rows] == [
+    assert [row["canonical_url"] for row in document_rows] == [
             "https://example.com/rss-remote",
             "https://example.com/sitemap-remote",
         ]
+
+
+def test_seed_discovery_follows_same_domain_child_links_with_bounded_depth(
+    monkeypatch,
+) -> None:
+    pages = {
+        "https://example.com/start": """
+            <html><body>
+              <a href="/article-1">Article 1</a>
+              <a href="/category/ml">Category</a>
+              <a href="https://other.example/article">External</a>
+            </body></html>
+        """,
+        "https://example.com/article-1": """
+            <html><body>
+              <a href="/article-2">Article 2</a>
+            </body></html>
+        """,
+    }
+
+    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(pages[url])
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    assert discovery.discover_seed_urls(("https://example.com/start",), max_depth=1) == [
+        "https://example.com/article-1"
+    ]
+    assert discovery.discover_seed_urls(("https://example.com/start",), max_depth=2) == [
+        "https://example.com/article-1",
+        "https://example.com/article-2",
+    ]
+
+
+def test_sitemapindex_recurses_to_content_urls(monkeypatch) -> None:
+    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+        assert url == "https://example.com/post-sitemap.xml"
+        return FakeXmlResponse(
+            """
+            <urlset>
+              <url><loc>https://example.com/article</loc></url>
+            </urlset>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_sitemap_urls(
+        """
+        <sitemapindex>
+          <sitemap><loc>https://example.com/post-sitemap.xml</loc></sitemap>
+        </sitemapindex>
+        """
+    )
+
+    assert urls == ["https://example.com/article"]
+
+
+def test_llms_txt_seed_is_parsed_as_discovery_index(monkeypatch) -> None:
+    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+        assert url == "https://docs.example.com/llms.txt"
+        return FakeXmlResponse(
+            """
+            # Docs
+            - https://docs.example.com/guide/intro
+            - https://docs.example.com/search?q=skip
+            - https://other.example.com/guide
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(("https://docs.example.com/llms.txt",), max_depth=1)
+
+    assert urls == ["https://docs.example.com/guide/intro"]

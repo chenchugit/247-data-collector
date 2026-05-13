@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS document_versions (
     model_name TEXT,
     prompt_name TEXT,
     content_hash TEXT,
+    source_content_hash TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (document_id) REFERENCES documents (id) ON DELETE CASCADE
 );
@@ -83,7 +84,42 @@ def connect_db(database_path: Path | None = None) -> sqlite3.Connection:
     connection = sqlite3.connect(path)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON;")
+    connection.execute("PRAGMA busy_timeout = 5000;")
     return connection
+
+
+def _ensure_additive_schema(connection: sqlite3.Connection) -> None:
+    document_version_columns = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(document_versions)").fetchall()
+    }
+    if "source_content_hash" not in document_version_columns:
+        connection.execute("ALTER TABLE document_versions ADD COLUMN source_content_hash TEXT")
+
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_documents_fetch_queue
+        ON documents (source_id, fetch_status, id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_documents_extract_queue
+        ON documents (source_id, fetch_status, extract_status, id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_document_versions_source_hash
+        ON document_versions (
+            document_id,
+            version_kind,
+            model_name,
+            prompt_name,
+            source_content_hash
+        )
+        """
+    )
 
 
 def init_db(database_path: Path | None = None) -> Path:
@@ -92,6 +128,7 @@ def init_db(database_path: Path | None = None) -> Path:
 
     with connect_db(path) as connection:
         connection.executescript(SCHEMA_SQL)
+        _ensure_additive_schema(connection)
 
     return path
 
@@ -375,6 +412,7 @@ def insert_document_version(
     model_name: str | None = None,
     prompt_name: str | None = None,
     content_hash: str | None = None,
+    source_content_hash: str | None = None,
 ) -> int:
     existing = connection.execute(
         """
@@ -386,6 +424,7 @@ def insert_document_version(
           AND COALESCE(model_name, '') = COALESCE(?, '')
           AND COALESCE(prompt_name, '') = COALESCE(?, '')
           AND COALESCE(content_hash, '') = COALESCE(?, '')
+          AND COALESCE(source_content_hash, '') = COALESCE(?, '')
         """,
         (
             document_id,
@@ -394,6 +433,7 @@ def insert_document_version(
             model_name,
             prompt_name,
             content_hash,
+            source_content_hash,
         ),
     ).fetchone()
     if existing is not None:
@@ -407,9 +447,10 @@ def insert_document_version(
             file_path,
             model_name,
             prompt_name,
-            content_hash
+            content_hash,
+            source_content_hash
         )
-        VALUES (?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
             document_id,
@@ -418,9 +459,42 @@ def insert_document_version(
             model_name,
             prompt_name,
             content_hash,
+            source_content_hash,
         ),
     )
     return int(cursor.lastrowid)
+
+
+def get_document_version_for_source_content(
+    connection: sqlite3.Connection,
+    *,
+    document_id: int,
+    version_kind: str,
+    model_name: str | None,
+    prompt_name: str | None,
+    source_content_hash: str,
+) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT id, document_id, version_kind, file_path, model_name, prompt_name,
+               content_hash, source_content_hash, created_at
+        FROM document_versions
+        WHERE document_id = ?
+          AND version_kind = ?
+          AND COALESCE(model_name, '') = COALESCE(?, '')
+          AND COALESCE(prompt_name, '') = COALESCE(?, '')
+          AND source_content_hash = ?
+        ORDER BY id DESC
+        LIMIT 1
+        """,
+        (
+            document_id,
+            version_kind,
+            model_name,
+            prompt_name,
+            source_content_hash,
+        ),
+    ).fetchone()
 
 
 def list_document_versions(
@@ -430,7 +504,8 @@ def list_document_versions(
 ) -> list[sqlite3.Row]:
     return connection.execute(
         """
-        SELECT id, document_id, version_kind, file_path, model_name, prompt_name, content_hash, created_at
+        SELECT id, document_id, version_kind, file_path, model_name, prompt_name,
+               content_hash, source_content_hash, created_at
         FROM document_versions
         WHERE document_id = ?
         ORDER BY id
@@ -446,7 +521,8 @@ def get_document_version(
 ) -> sqlite3.Row | None:
     return connection.execute(
         """
-        SELECT id, document_id, version_kind, file_path, model_name, prompt_name, content_hash, created_at
+        SELECT id, document_id, version_kind, file_path, model_name, prompt_name,
+               content_hash, source_content_hash, created_at
         FROM document_versions
         WHERE id = ?
         """,

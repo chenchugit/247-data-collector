@@ -1,8 +1,10 @@
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urljoin, urlsplit, urlunsplit
 from urllib.request import urlopen
 import json
+import re
 import tomllib
 import xml.etree.ElementTree as ET
 
@@ -18,6 +20,36 @@ from .db import (
 
 
 SUPPORTED_SOURCE_TYPES = {"rss", "sitemap", "seed"}
+DEFAULT_SEED_MAX_DEPTH = 1
+DENY_PATH_RE = re.compile(
+    r"(^|/)(tag|tags|category|categories|search|feed|rss|atom|sitemap|author|authors|"
+    r"privacy|terms|about|contact|archive|archives|page)(\.|/|$)|/page/\d+/?$",
+    re.IGNORECASE,
+)
+DENY_EXTENSIONS = {
+    ".7z",
+    ".css",
+    ".csv",
+    ".doc",
+    ".docx",
+    ".gif",
+    ".gz",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".js",
+    ".json",
+    ".mp3",
+    ".mp4",
+    ".pdf",
+    ".png",
+    ".svg",
+    ".tar",
+    ".tgz",
+    ".webp",
+    ".zip",
+}
+ABSOLUTE_URL_RE = re.compile(r"https?://[^\s\])>\"']+")
 
 
 @dataclass(frozen=True)
@@ -29,6 +61,7 @@ class SourceDefinition:
     config_path: Path
     path: Path | str | None = None
     seeds: tuple[str, ...] = ()
+    max_depth: int = DEFAULT_SEED_MAX_DEPTH
 
 
 @dataclass(frozen=True)
@@ -40,6 +73,20 @@ class DiscoveryResult:
     inserted_count: int
     log_path: str
     status: str
+    max_depth: int | None = None
+
+
+class _HTMLLinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.hrefs: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag != "a":
+            return
+        for name, value in attrs:
+            if name.lower() == "href" and value:
+                self.hrefs.append(value)
 
 
 def get_sources_config_path() -> Path:
@@ -66,6 +113,9 @@ def load_source_definitions(config_path: Path | None = None) -> list[SourceDefin
 
         source_path = item.get("path")
         seeds = item.get("seeds", [])
+        max_depth = int(item.get("max_depth", DEFAULT_SEED_MAX_DEPTH))
+        if max_depth < 0:
+            raise ValueError(f"{source_key} max_depth must be >= 0")
 
         if source_type in {"rss", "sitemap"} and not source_path:
             raise ValueError(f"{source_key} requires path for {source_type} discovery")
@@ -90,6 +140,7 @@ def load_source_definitions(config_path: Path | None = None) -> list[SourceDefin
                 config_path=path.resolve(),
                 path=resolved_path,
                 seeds=tuple(str(url) for url in seeds),
+                max_depth=max_depth,
             )
         )
 
@@ -141,6 +192,12 @@ def _read_xml_input(path: Path | str) -> str:
     return local_path.read_text(encoding="utf-8")
 
 
+def _read_text_url(url: str, *, timeout: int = 30) -> str:
+    with urlopen(url, timeout=timeout) as response:
+        charset = response.headers.get_content_charset() or "utf-8"
+        return response.read().decode(charset, errors="replace")
+
+
 def discover_rss_urls(xml_text: str) -> list[str]:
     root = ET.fromstring(xml_text)
     urls: list[str] = []
@@ -164,17 +221,87 @@ def discover_rss_urls(xml_text: str) -> list[str]:
 
 def discover_sitemap_urls(xml_text: str) -> list[str]:
     root = ET.fromstring(xml_text)
+    root_name = _local_name(root.tag)
     urls: list[str] = []
 
-    for element in root.iter():
-        if _local_name(element.tag) == "loc" and element.text:
-            urls.append(element.text)
+    if root_name == "sitemapindex":
+        for element in root.iter():
+            if _local_name(element.tag) == "loc" and element.text:
+                child_xml = _read_xml_input(element.text.strip())
+                urls.extend(discover_sitemap_urls(child_xml))
+    else:
+        for element in root.iter():
+            if _local_name(element.tag) == "loc" and element.text:
+                urls.append(element.text)
 
     return deduplicate_urls(urls)
 
 
-def discover_seed_urls(seeds: tuple[str, ...]) -> list[str]:
-    return deduplicate_urls(list(seeds))
+def _same_domain(candidate_url: str, seed_url: str) -> bool:
+    return urlsplit(candidate_url).netloc.lower() == urlsplit(seed_url).netloc.lower()
+
+
+def _is_probable_content_url(url: str) -> bool:
+    parts = urlsplit(url)
+    path = parts.path or "/"
+    if DENY_PATH_RE.search(path):
+        return False
+    if Path(path).suffix.lower() in DENY_EXTENSIONS:
+        return False
+    return True
+
+
+def _extract_html_child_urls(html_text: str, *, base_url: str) -> list[str]:
+    parser = _HTMLLinkParser()
+    parser.feed(html_text)
+    urls: list[str] = []
+    for href in parser.hrefs:
+        if href.startswith(("mailto:", "tel:", "javascript:")):
+            continue
+        absolute_url = urljoin(base_url, href)
+        parts = urlsplit(absolute_url)
+        if parts.scheme not in {"http", "https"} or not parts.netloc:
+            continue
+        normalized = urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
+        if _same_domain(normalized, base_url) and _is_probable_content_url(normalized):
+            urls.append(normalized)
+    return deduplicate_urls(urls)
+
+
+def parse_llms_txt_urls(text: str, *, base_url: str) -> list[str]:
+    urls: list[str] = []
+    for match in ABSOLUTE_URL_RE.finditer(text):
+        candidate = match.group(0).rstrip(".,;:")
+        if _same_domain(candidate, base_url) and _is_probable_content_url(candidate):
+            urls.append(candidate)
+    return deduplicate_urls(urls)
+
+
+def discover_seed_urls(seeds: tuple[str, ...], *, max_depth: int = DEFAULT_SEED_MAX_DEPTH) -> list[str]:
+    discovered: list[str] = []
+    seen_pages: set[str] = set()
+    frontier = [(seed_url, 0, seed_url) for seed_url in deduplicate_urls(list(seeds))]
+
+    while frontier:
+        current_url, depth, root_seed_url = frontier.pop(0)
+        if current_url in seen_pages:
+            continue
+        seen_pages.add(current_url)
+
+        if urlsplit(current_url).path.endswith("/llms.txt"):
+            child_urls = parse_llms_txt_urls(_read_text_url(current_url), base_url=current_url)
+        else:
+            child_urls = _extract_html_child_urls(_read_text_url(current_url), base_url=current_url)
+
+        discovered.extend(child_urls)
+        next_depth = depth + 1
+        if next_depth >= max_depth:
+            continue
+        for child_url in child_urls:
+            if child_url not in seen_pages and _same_domain(child_url, root_seed_url):
+                frontier.append((child_url, next_depth, root_seed_url))
+
+    return deduplicate_urls(discovered)
 
 
 def discover_source_urls(source_definition: SourceDefinition) -> list[str]:
@@ -183,7 +310,10 @@ def discover_source_urls(source_definition: SourceDefinition) -> list[str]:
     if source_definition.source_type == "sitemap":
         return discover_sitemap_urls(_read_xml_input(source_definition.path))
     if source_definition.source_type == "seed":
-        return discover_seed_urls(source_definition.seeds)
+        return discover_seed_urls(
+            source_definition.seeds,
+            max_depth=source_definition.max_depth,
+        )
 
     raise ValueError(f"unsupported source type: {source_definition.source_type}")
 
@@ -207,12 +337,15 @@ def run_discovery(
     config_path: Path | None = None,
     database_path: Path | None = None,
     log_dir: Path | None = None,
+    source_keys: tuple[str, ...] | None = None,
 ) -> list[DiscoveryResult]:
     settings = load_settings()
+    requested_source_keys = set(source_keys or ())
     source_definitions = [
         source_definition
         for source_definition in load_source_definitions(config_path)
         if source_definition.enabled
+        and (not requested_source_keys or source_definition.source_key in requested_source_keys)
     ]
     db_path = init_db(database_path)
     logs_root = Path(log_dir or settings.log_dir)
@@ -244,10 +377,11 @@ def run_discovery(
                     "run_kind": run_kind,
                     "crawl_run_id": crawl_run_id,
                     "source_key": source_definition.source_key,
-                    "source_type": source_definition.source_type,
-                    "status": "running",
-                },
-            )
+                        "source_type": source_definition.source_type,
+                        "status": "running",
+                        "max_depth": source_definition.max_depth,
+                    },
+                )
 
             try:
                 canonical_urls = discover_source_urls(source_definition)
@@ -267,6 +401,7 @@ def run_discovery(
                         "status": "success",
                         "discovered_count": len(canonical_urls),
                         "inserted_count": inserted_count,
+                        "max_depth": source_definition.max_depth,
                     },
                 )
                 finish_crawl_run(
@@ -288,6 +423,7 @@ def run_discovery(
                         "discovered_count": len(canonical_urls),
                         "inserted_count": inserted_count,
                         "log_path": relative_log_path,
+                        "max_depth": source_definition.max_depth,
                     },
                 )
             except Exception as exc:
@@ -321,6 +457,7 @@ def run_discovery(
                     inserted_count=inserted_count,
                     log_path=relative_log_path,
                     status="success",
+                    max_depth=source_definition.max_depth,
                 )
             )
 
