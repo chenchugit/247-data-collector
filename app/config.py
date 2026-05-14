@@ -22,6 +22,7 @@ class Settings:
     derived_dir: Path
     log_dir: Path
     database_path: Path
+    discovery_user_agent: str
     ollama_base_url: str
     ollama_model: str
     ollama_timeout_seconds: int
@@ -64,6 +65,10 @@ def load_settings() -> Settings:
         derived_dir=data_dir / "derived",
         log_dir=data_dir / "logs",
         database_path=database_path,
+        discovery_user_agent=os.getenv(
+            "AUTO_SCRAPY_DISCOVERY_USER_AGENT",
+            "Mozilla/5.0 (compatible; auto-scrapy/0.1; local-first discovery)",
+        ),
         ollama_base_url=os.getenv("AUTO_SCRAPY_OLLAMA_BASE_URL", "http://127.0.0.1:11434"),
         ollama_model=os.getenv("AUTO_SCRAPY_OLLAMA_MODEL", "qwen2.5-coder:7b"),
         ollama_timeout_seconds=int(os.getenv("AUTO_SCRAPY_OLLAMA_TIMEOUT_SECONDS", "120")),

@@ -1,4 +1,5 @@
 from pathlib import Path
+from urllib.error import HTTPError
 
 import app.discovery as discovery
 from app.config import load_settings
@@ -24,6 +25,10 @@ class FakeXmlResponse:
         return "utf-8"
 
 
+def _request_url(request) -> str:
+    return request.full_url if hasattr(request, "full_url") else request
+
+
 def test_run_discovery_loads_sources_records_candidates_and_deduplicates(
     tmp_path: Path,
     monkeypatch,
@@ -39,7 +44,8 @@ def test_run_discovery_loads_sources_records_candidates_and_deduplicates(
         "demo-seed",
     ]
 
-    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
         if url == "https://example.com/start":
             return FakeXmlResponse(
                 """
@@ -227,6 +233,12 @@ def test_target_smoke_sources_preserve_existing_schema() -> None:
     assert source_map["langchain-llmstxt"].seeds == (
         "https://docs.langchain.com/llms.txt",
     )
+    assert source_map["openai-news"].allow_url_patterns == (
+        "^https://openai\\.com/index/[^/?#]+/?$",
+    )
+    assert source_map["pytorch-blog"].allow_url_patterns == (
+        "^https://pytorch\\.org/blog/[^/?#]+/?$",
+    )
 
 
 def test_run_discovery_accepts_remote_rss_and_sitemap_paths(tmp_path: Path, monkeypatch) -> None:
@@ -252,8 +264,9 @@ def test_run_discovery_accepts_remote_rss_and_sitemap_paths(tmp_path: Path, monk
         encoding="utf-8",
     )
 
-    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
         assert timeout == 30
+        url = _request_url(request)
         if url.endswith("feed.xml"):
             return FakeXmlResponse(
                 """
@@ -311,7 +324,8 @@ def test_seed_discovery_follows_same_domain_child_links_with_bounded_depth(
         """,
     }
 
-    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
         return FakeXmlResponse(pages[url])
 
     monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
@@ -325,8 +339,133 @@ def test_seed_discovery_follows_same_domain_child_links_with_bounded_depth(
     ]
 
 
+def test_seed_discovery_honors_allow_url_patterns(monkeypatch) -> None:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/posts/first">Post</a>
+              <a href="/docs/intro">Docs</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(
+        ("https://example.com/start",),
+        max_depth=1,
+        allow_url_patterns=(r"^https://example\.com/posts/",),
+    )
+
+    assert urls == ["https://example.com/posts/first"]
+
+
+def test_seed_discovery_honors_deny_url_patterns(monkeypatch) -> None:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/posts/keep">Keep</a>
+              <a href="/posts/drop">Drop</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(
+        ("https://example.com/start",),
+        max_depth=1,
+        deny_url_patterns=(r"/drop/?$",),
+    )
+
+    assert urls == ["https://example.com/posts/keep"]
+
+
+def test_seed_discovery_rejects_invalid_child_hrefs(monkeypatch) -> None:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="">Empty</a>
+              <a href="   ">Whitespace</a>
+              <a href="#content">Hash</a>
+              <a href="javascript:void(0)">JavaScript</a>
+              <a href="javascript(0):void">Pseudo JavaScript</a>
+              <a href="void(0)">Void</a>
+              <a href="mailto:hello@example.com">Mail</a>
+              <a href="tel:+15555550100">Phone</a>
+              <a href="/blog/valid-post">Valid</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(("https://example.com/blog",), max_depth=1)
+
+    assert urls == ["https://example.com/blog/valid-post"]
+
+
+def test_target_source_specific_filters_narrow_openai_and_pytorch_urls(monkeypatch) -> None:
+    config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "target_smoke_sources.toml"
+    source_map = {item.source_key: item for item in load_source_definitions(config_path)}
+
+    pages = {
+        "https://openai.com/news/": """
+            <html><body>
+              <a href="/index/gpt-4-1/">Article</a>
+              <a href="/news/">News index</a>
+              <a href="/research/">Research index</a>
+            </body></html>
+        """,
+        "https://pytorch.org/blog/": """
+            <html><body>
+              <a href="/blog/pytorch-2-8/">Blog article</a>
+              <a href="/tutorials/">Tutorials</a>
+              <a href="/get-started/locally/">Get started</a>
+            </body></html>
+        """,
+    }
+
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(pages[_request_url(request)])
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    assert discovery.discover_source_urls(source_map["openai-news"]) == [
+        "https://openai.com/index/gpt-4-1/"
+    ]
+    assert discovery.discover_source_urls(source_map["pytorch-blog"]) == [
+        "https://pytorch.org/blog/pytorch-2-8/"
+    ]
+
+
+def test_target_source_specific_filter_rejects_huggingface_login(monkeypatch) -> None:
+    config_path = Path(__file__).resolve().parent.parent / "config" / "sources" / "target_smoke_sources.toml"
+    source_map = {item.source_key: item for item in load_source_definitions(config_path)}
+
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/login">Login</a>
+              <a href="/blog/valid-post">Valid blog post</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    assert discovery.discover_source_urls(source_map["huggingface-blog"]) == [
+        "https://huggingface.co/blog/valid-post"
+    ]
+
+
 def test_sitemapindex_recurses_to_content_urls(monkeypatch) -> None:
-    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
         assert url == "https://example.com/post-sitemap.xml"
         return FakeXmlResponse(
             """
@@ -350,7 +489,8 @@ def test_sitemapindex_recurses_to_content_urls(monkeypatch) -> None:
 
 
 def test_llms_txt_seed_is_parsed_as_discovery_index(monkeypatch) -> None:
-    def fake_urlopen(url: str, timeout: int = 30) -> FakeXmlResponse:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
         assert url == "https://docs.example.com/llms.txt"
         return FakeXmlResponse(
             """
@@ -366,3 +506,107 @@ def test_llms_txt_seed_is_parsed_as_discovery_index(monkeypatch) -> None:
     urls = discovery.discover_seed_urls(("https://docs.example.com/llms.txt",), max_depth=1)
 
     assert urls == ["https://docs.example.com/guide/intro"]
+
+
+def test_seed_discovery_uses_request_headers(monkeypatch) -> None:
+    seen_headers: dict[str, str] = {}
+
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        seen_headers.update(dict(request.header_items()))
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/article">Article</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(("https://example.com/start",), max_depth=1)
+
+    assert urls == ["https://example.com/article"]
+    assert "User-agent" in seen_headers
+    assert "Accept" in seen_headers
+    assert "Accept-language" in seen_headers
+
+
+def test_seed_http_failure_falls_back_to_original_seed_and_continues(monkeypatch) -> None:
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
+        if url == "https://example.com/blocked":
+            raise HTTPError(url, 403, "Forbidden", hdrs=None, fp=None)
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/article">Article</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    urls = discovery.discover_seed_urls(
+        ("https://example.com/blocked", "https://example.com/start"),
+        max_depth=1,
+    )
+
+    assert urls == [
+        "https://example.com/blocked",
+        "https://example.com/article",
+    ]
+
+
+def test_run_discovery_continues_after_one_source_failure(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "discovery-failure.sqlite3"
+    log_dir = tmp_path / "data" / "logs"
+    config_path = tmp_path / "sources.toml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "[[sources]]",
+                'source_key = "bad-rss"',
+                'source_type = "rss"',
+                'title = "Bad RSS"',
+                'path = "https://example.com/bad.xml"',
+                "",
+                "[[sources]]",
+                'source_key = "good-seed"',
+                'source_type = "seed"',
+                'title = "Good Seed"',
+                'seeds = ["https://example.com/start"]',
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    def fake_urlopen(request, timeout: int = 30) -> FakeXmlResponse:
+        url = _request_url(request)
+        if url == "https://example.com/bad.xml":
+            raise HTTPError(url, 500, "Server Error", hdrs=None, fp=None)
+        return FakeXmlResponse(
+            """
+            <html><body>
+              <a href="/article">Article</a>
+            </body></html>
+            """
+        )
+
+    monkeypatch.setattr(discovery, "urlopen", fake_urlopen)
+
+    results = run_discovery(
+        config_path=config_path,
+        database_path=database_path,
+        log_dir=log_dir,
+    )
+
+    assert [(item.source_key, item.status) for item in results] == [
+        ("bad-rss", "failed"),
+        ("good-seed", "success"),
+    ]
+
+    with connect_db(database_path) as connection:
+        rows = connection.execute(
+            "SELECT canonical_url FROM documents ORDER BY canonical_url"
+        ).fetchall()
+    assert [row["canonical_url"] for row in rows] == ["https://example.com/article"]

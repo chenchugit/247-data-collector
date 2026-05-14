@@ -517,16 +517,35 @@ def run_pipeline_once(
     for discovery_result in discovery_results:
         source_key = discovery_result.source_key
         stage_summaries: list[RuntimeStageSummary] = []
-        source_has_failure = False
+        source_has_failure = discovery_result.status != "success"
         _append_log(
             runtime_log_path,
             {
                 "event": "source_started",
                 "source_key": source_key,
                 "discovery_run_id": discovery_result.crawl_run_id,
-                "discovery_status": "success",
+                "discovery_status": discovery_result.status,
             },
         )
+
+        if discovery_result.status == "failed":
+            failed_source_count += 1
+            source_summaries.append(
+                RuntimeSourceSummary(
+                    source_key=source_key,
+                    status="failed",
+                    stages=tuple(),
+                )
+            )
+            _append_log(
+                runtime_log_path,
+                {
+                    "event": "source_finished",
+                    "source_key": source_key,
+                    "status": "failed",
+                },
+            )
+            continue
 
         stage_specs = [
             (

@@ -16,6 +16,7 @@ from .db import (
     get_source_id_by_key,
     init_db,
     list_documents_for_extract,
+    requeue_document_for_fetch,
     start_crawl_run,
     update_document_extract_state,
 )
@@ -25,6 +26,7 @@ EXTRACT_RUN_KIND = "extract:trafilatura"
 MIN_CLEANED_CHARS = 180
 MIN_CLEANED_WORDS = 30
 LOW_QUALITY_STATUS = "rejected_low_quality"
+TEXTLIKE_SUFFIXES = {".md", ".markdown", ".mdown", ".rst", ".txt", ".text"}
 
 
 @dataclass(frozen=True)
@@ -146,6 +148,51 @@ def _looks_like_html(raw_bytes: bytes, current_raw_path: str) -> bool:
     return b"<html" in sample or b"<!doctype html" in sample
 
 
+def _looks_like_textlike(raw_bytes: bytes, current_raw_path: str) -> bool:
+    if Path(current_raw_path).suffix.lower() in TEXTLIKE_SUFFIXES:
+        return True
+    if b"\x00" in raw_bytes[:4096]:
+        return False
+
+    sample = raw_bytes[:4096].decode("utf-8", errors="replace")
+    if not sample.strip():
+        return False
+    printable_count = sum(1 for char in sample if char.isprintable() or char in "\r\n\t")
+    return printable_count / max(len(sample), 1) > 0.85
+
+
+def _clean_textlike_content(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").replace("\t", "    ")
+    lines = [line.rstrip() for line in normalized.split("\n")]
+
+    cleaned_lines: list[str] = []
+    blank_count = 0
+    for line in lines:
+        if line.strip():
+            blank_count = 0
+            cleaned_lines.append(line)
+            continue
+
+        blank_count += 1
+        if blank_count <= 2:
+            cleaned_lines.append("")
+
+    return "\n".join(cleaned_lines).strip()
+
+
+def _title_from_textlike(cleaned_text: str) -> str | None:
+    for line in cleaned_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            return stripped.lstrip("#").strip() or None
+        if len(stripped) <= 120:
+            return stripped
+        return None
+    return None
+
+
 def _quality_check(output: ExtractionOutput) -> None:
     text = re.sub(r"\s+", " ", output.cleaned_text).strip()
     word_count = len(re.findall(r"\b\w+\b", text))
@@ -161,6 +208,24 @@ def _quality_check(output: ExtractionOutput) -> None:
 
 def extract_cleaned_content(raw_bytes: bytes, current_raw_path: str) -> ExtractionOutput:
     text = raw_bytes.decode("utf-8", errors="replace")
+    is_html_like = _looks_like_html(raw_bytes, current_raw_path)
+    if not is_html_like and _looks_like_textlike(raw_bytes, current_raw_path):
+        output = ExtractionOutput(
+            cleaned_text=_clean_textlike_content(text),
+            title=None,
+            extractor_name="textlike",
+        )
+        output = ExtractionOutput(
+            cleaned_text=output.cleaned_text,
+            title=_title_from_textlike(output.cleaned_text),
+            extractor_name=output.extractor_name,
+        )
+        _quality_check(output)
+        return output
+
+    if not is_html_like and not text.strip():
+        raise LowQualityContentError("textlike content is empty")
+
     extracted = trafilatura.extract(
         text,
         output_format="markdown",
@@ -181,7 +246,7 @@ def extract_cleaned_content(raw_bytes: bytes, current_raw_path: str) -> Extracti
         _quality_check(output)
         return output
 
-    if _looks_like_html(raw_bytes, current_raw_path):
+    if is_html_like:
         parser = _FallbackHTMLTextParser()
         parser.feed(text)
         fallback_output = parser.build_output()
@@ -277,6 +342,24 @@ def run_extract(
                     "status": "extracted",
                     "cleaned_path": stored_cleaned_path,
                     "extractor": output.extractor_name,
+                },
+            )
+        except FileNotFoundError as exc:
+            failed_count += 1
+            error_text = f"{canonical_url}: raw artifact missing; queued for refetch: {current_raw_path}"
+            errors.append(error_text)
+
+            with connect_db(db_path) as connection:
+                requeue_document_for_fetch(connection, document_id=document_id)
+
+            _append_log(
+                log_path,
+                {
+                    "url": canonical_url,
+                    "document_id": document_id,
+                    "status": "raw_missing_requeued",
+                    "raw_path": current_raw_path,
+                    "error": str(exc),
                 },
             )
         except LowQualityContentError as exc:

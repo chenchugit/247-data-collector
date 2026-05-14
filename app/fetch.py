@@ -28,6 +28,9 @@ FETCH_RUN_KIND = "fetch:http"
 BROWSER_ESCALATION_HEADER = b"x-auto-scrapy-requires-browser"
 BROWSER_ESCALATION_MARKER = '<meta name="auto-scrapy-requires-browser" content="1">'
 BROWSER_READY_SELECTOR = "#hydrated"
+FETCH_DOWNLOAD_TIMEOUT_SECONDS = 30
+FETCH_RETRY_TIMES = 1
+FETCH_RETRY_HTTP_CODES = [408, 429, 500, 502, 503, 504]
 
 
 @dataclass(frozen=True)
@@ -162,8 +165,10 @@ class RawFetchSpider(scrapy.Spider):
     name = "raw_fetch"
     custom_settings = {
         "LOG_ENABLED": False,
-        "RETRY_ENABLED": False,
-        "DOWNLOAD_TIMEOUT": 10,
+        "RETRY_ENABLED": True,
+        "RETRY_TIMES": FETCH_RETRY_TIMES,
+        "RETRY_HTTP_CODES": FETCH_RETRY_HTTP_CODES,
+        "DOWNLOAD_TIMEOUT": FETCH_DOWNLOAD_TIMEOUT_SECONDS,
         "USER_AGENT": "auto-scrapy/0.1",
     }
 

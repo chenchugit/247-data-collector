@@ -1,8 +1,9 @@
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
+from urllib import error
 from urllib.parse import urljoin, urlsplit, urlunsplit
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 import json
 import re
 import tomllib
@@ -50,6 +51,12 @@ DENY_EXTENSIONS = {
     ".zip",
 }
 ABSOLUTE_URL_RE = re.compile(r"https?://[^\s\])>\"']+")
+HTML_ACCEPT_HEADER = "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.8"
+XML_ACCEPT_HEADER = "application/xml,text/xml,application/rss+xml,application/atom+xml,*/*;q=0.8"
+INVALID_CHILD_HREF_RE = re.compile(
+    r"^(?:javascript\s*:|javascript\s*\([^)]*\)\s*:|void\s*\(|mailto\s*:|tel\s*:)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -62,6 +69,8 @@ class SourceDefinition:
     path: Path | str | None = None
     seeds: tuple[str, ...] = ()
     max_depth: int = DEFAULT_SEED_MAX_DEPTH
+    allow_url_patterns: tuple[str, ...] = ()
+    deny_url_patterns: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -74,6 +83,17 @@ class DiscoveryResult:
     log_path: str
     status: str
     max_depth: int | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True)
+class SeedDiscoveryOutput:
+    urls: list[str]
+    failed_seeds: tuple[str, ...] = ()
+
+
+class DiscoveryReadError(RuntimeError):
+    pass
 
 
 class _HTMLLinkParser(HTMLParser):
@@ -113,6 +133,8 @@ def load_source_definitions(config_path: Path | None = None) -> list[SourceDefin
 
         source_path = item.get("path")
         seeds = item.get("seeds", [])
+        allow_url_patterns = tuple(str(pattern) for pattern in item.get("allow_url_patterns", []))
+        deny_url_patterns = tuple(str(pattern) for pattern in item.get("deny_url_patterns", []))
         max_depth = int(item.get("max_depth", DEFAULT_SEED_MAX_DEPTH))
         if max_depth < 0:
             raise ValueError(f"{source_key} max_depth must be >= 0")
@@ -141,6 +163,8 @@ def load_source_definitions(config_path: Path | None = None) -> list[SourceDefin
                 path=resolved_path,
                 seeds=tuple(str(url) for url in seeds),
                 max_depth=max_depth,
+                allow_url_patterns=allow_url_patterns,
+                deny_url_patterns=deny_url_patterns,
             )
         )
 
@@ -181,10 +205,32 @@ def _local_name(tag: str) -> str:
     return tag.split("}", 1)[-1]
 
 
+def _build_discovery_request(url: str, *, accept: str) -> Request:
+    return Request(
+        url,
+        headers={
+            "User-Agent": load_settings().discovery_user_agent,
+            "Accept": accept,
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+
+
+def _read_remote_text(url: str, *, accept: str, timeout: int = 30) -> str:
+    request = _build_discovery_request(url, accept=accept)
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            charset = response.headers.get_content_charset() or "utf-8"
+            return response.read().decode(charset, errors="replace")
+    except error.HTTPError as exc:
+        raise DiscoveryReadError(f"{url}: HTTP {exc.code}") from exc
+    except error.URLError as exc:
+        raise DiscoveryReadError(f"{url}: {exc.reason}") from exc
+
+
 def _read_xml_input(path: Path | str) -> str:
     if isinstance(path, str) and urlsplit(path).scheme in {"http", "https"}:
-        with urlopen(path, timeout=30) as response:
-            return response.read().decode("utf-8")
+        return _read_remote_text(path, accept=XML_ACCEPT_HEADER)
 
     local_path = Path(path)
     if not local_path.exists():
@@ -193,9 +239,7 @@ def _read_xml_input(path: Path | str) -> str:
 
 
 def _read_text_url(url: str, *, timeout: int = 30) -> str:
-    with urlopen(url, timeout=timeout) as response:
-        charset = response.headers.get_content_charset() or "utf-8"
-        return response.read().decode(charset, errors="replace")
+    return _read_remote_text(url, accept=HTML_ACCEPT_HEADER, timeout=timeout)
 
 
 def discover_rss_urls(xml_text: str) -> list[str]:
@@ -241,44 +285,93 @@ def _same_domain(candidate_url: str, seed_url: str) -> bool:
     return urlsplit(candidate_url).netloc.lower() == urlsplit(seed_url).netloc.lower()
 
 
-def _is_probable_content_url(url: str) -> bool:
+def _matches_any_pattern(url: str, patterns: tuple[str, ...]) -> bool:
+    return any(re.search(pattern, url) for pattern in patterns)
+
+
+def _is_valid_child_href(href: str) -> bool:
+    value = href.strip()
+    if not value:
+        return False
+    if value.startswith("#"):
+        return False
+    return INVALID_CHILD_HREF_RE.search(value) is None
+
+
+def _is_probable_content_url(
+    url: str,
+    *,
+    allow_url_patterns: tuple[str, ...] = (),
+    deny_url_patterns: tuple[str, ...] = (),
+) -> bool:
     parts = urlsplit(url)
     path = parts.path or "/"
     if DENY_PATH_RE.search(path):
         return False
     if Path(path).suffix.lower() in DENY_EXTENSIONS:
         return False
+    if deny_url_patterns and _matches_any_pattern(url, deny_url_patterns):
+        return False
+    if allow_url_patterns and not _matches_any_pattern(url, allow_url_patterns):
+        return False
     return True
 
 
-def _extract_html_child_urls(html_text: str, *, base_url: str) -> list[str]:
+def _extract_html_child_urls(
+    html_text: str,
+    *,
+    base_url: str,
+    allow_url_patterns: tuple[str, ...] = (),
+    deny_url_patterns: tuple[str, ...] = (),
+) -> list[str]:
     parser = _HTMLLinkParser()
     parser.feed(html_text)
     urls: list[str] = []
     for href in parser.hrefs:
-        if href.startswith(("mailto:", "tel:", "javascript:")):
+        if not _is_valid_child_href(href):
             continue
         absolute_url = urljoin(base_url, href)
         parts = urlsplit(absolute_url)
         if parts.scheme not in {"http", "https"} or not parts.netloc:
             continue
         normalized = urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
-        if _same_domain(normalized, base_url) and _is_probable_content_url(normalized):
+        if _same_domain(normalized, base_url) and _is_probable_content_url(
+            normalized,
+            allow_url_patterns=allow_url_patterns,
+            deny_url_patterns=deny_url_patterns,
+        ):
             urls.append(normalized)
     return deduplicate_urls(urls)
 
 
-def parse_llms_txt_urls(text: str, *, base_url: str) -> list[str]:
+def parse_llms_txt_urls(
+    text: str,
+    *,
+    base_url: str,
+    allow_url_patterns: tuple[str, ...] = (),
+    deny_url_patterns: tuple[str, ...] = (),
+) -> list[str]:
     urls: list[str] = []
     for match in ABSOLUTE_URL_RE.finditer(text):
         candidate = match.group(0).rstrip(".,;:")
-        if _same_domain(candidate, base_url) and _is_probable_content_url(candidate):
+        if _same_domain(candidate, base_url) and _is_probable_content_url(
+            candidate,
+            allow_url_patterns=allow_url_patterns,
+            deny_url_patterns=deny_url_patterns,
+        ):
             urls.append(candidate)
     return deduplicate_urls(urls)
 
 
-def discover_seed_urls(seeds: tuple[str, ...], *, max_depth: int = DEFAULT_SEED_MAX_DEPTH) -> list[str]:
+def discover_seed_urls_with_failures(
+    seeds: tuple[str, ...],
+    *,
+    max_depth: int = DEFAULT_SEED_MAX_DEPTH,
+    allow_url_patterns: tuple[str, ...] = (),
+    deny_url_patterns: tuple[str, ...] = (),
+) -> SeedDiscoveryOutput:
     discovered: list[str] = []
+    failed_seeds: list[str] = []
     seen_pages: set[str] = set()
     frontier = [(seed_url, 0, seed_url) for seed_url in deduplicate_urls(list(seeds))]
 
@@ -288,10 +381,26 @@ def discover_seed_urls(seeds: tuple[str, ...], *, max_depth: int = DEFAULT_SEED_
             continue
         seen_pages.add(current_url)
 
-        if urlsplit(current_url).path.endswith("/llms.txt"):
-            child_urls = parse_llms_txt_urls(_read_text_url(current_url), base_url=current_url)
-        else:
-            child_urls = _extract_html_child_urls(_read_text_url(current_url), base_url=current_url)
+        try:
+            if urlsplit(current_url).path.endswith("/llms.txt"):
+                child_urls = parse_llms_txt_urls(
+                    _read_text_url(current_url),
+                    base_url=current_url,
+                    allow_url_patterns=allow_url_patterns,
+                    deny_url_patterns=deny_url_patterns,
+                )
+            else:
+                child_urls = _extract_html_child_urls(
+                    _read_text_url(current_url),
+                    base_url=current_url,
+                    allow_url_patterns=allow_url_patterns,
+                    deny_url_patterns=deny_url_patterns,
+                )
+        except DiscoveryReadError:
+            failed_seeds.append(current_url)
+            if depth == 0:
+                discovered.append(current_url)
+            continue
 
         discovered.extend(child_urls)
         next_depth = depth + 1
@@ -301,7 +410,25 @@ def discover_seed_urls(seeds: tuple[str, ...], *, max_depth: int = DEFAULT_SEED_
             if child_url not in seen_pages and _same_domain(child_url, root_seed_url):
                 frontier.append((child_url, next_depth, root_seed_url))
 
-    return deduplicate_urls(discovered)
+    return SeedDiscoveryOutput(
+        urls=deduplicate_urls(discovered),
+        failed_seeds=tuple(deduplicate_urls(failed_seeds)),
+    )
+
+
+def discover_seed_urls(
+    seeds: tuple[str, ...],
+    *,
+    max_depth: int = DEFAULT_SEED_MAX_DEPTH,
+    allow_url_patterns: tuple[str, ...] = (),
+    deny_url_patterns: tuple[str, ...] = (),
+) -> list[str]:
+    return discover_seed_urls_with_failures(
+        seeds,
+        max_depth=max_depth,
+        allow_url_patterns=allow_url_patterns,
+        deny_url_patterns=deny_url_patterns,
+    ).urls
 
 
 def discover_source_urls(source_definition: SourceDefinition) -> list[str]:
@@ -313,9 +440,25 @@ def discover_source_urls(source_definition: SourceDefinition) -> list[str]:
         return discover_seed_urls(
             source_definition.seeds,
             max_depth=source_definition.max_depth,
+            allow_url_patterns=source_definition.allow_url_patterns,
+            deny_url_patterns=source_definition.deny_url_patterns,
         )
 
     raise ValueError(f"unsupported source type: {source_definition.source_type}")
+
+
+def _discover_source_urls_with_failures(
+    source_definition: SourceDefinition,
+) -> tuple[list[str], tuple[str, ...]]:
+    if source_definition.source_type == "seed":
+        output = discover_seed_urls_with_failures(
+            source_definition.seeds,
+            max_depth=source_definition.max_depth,
+            allow_url_patterns=source_definition.allow_url_patterns,
+            deny_url_patterns=source_definition.deny_url_patterns,
+        )
+        return output.urls, output.failed_seeds
+    return discover_source_urls(source_definition), ()
 
 
 def _config_path_for_db(path: Path) -> str:
@@ -384,7 +527,7 @@ def run_discovery(
                 )
 
             try:
-                canonical_urls = discover_source_urls(source_definition)
+                canonical_urls, failed_seeds = _discover_source_urls_with_failures(source_definition)
                 inserted_count = record_discovered_documents(
                     connection,
                     source_id=source_id,
@@ -398,17 +541,37 @@ def run_discovery(
                         "crawl_run_id": crawl_run_id,
                         "source_key": source_definition.source_key,
                         "source_type": source_definition.source_type,
-                        "status": "success",
+                        "status": "partial_failure" if failed_seeds else "success",
                         "discovered_count": len(canonical_urls),
                         "inserted_count": inserted_count,
                         "max_depth": source_definition.max_depth,
+                        "failed_seed_count": len(failed_seeds),
                     },
                 )
+                for failed_seed in failed_seeds:
+                    _append_log(
+                        log_path,
+                        {
+                            "event": "seed_expansion_failed",
+                            "run_kind": run_kind,
+                            "crawl_run_id": crawl_run_id,
+                            "source_key": source_definition.source_key,
+                            "source_type": source_definition.source_type,
+                            "status": "fallback_to_seed",
+                            "seed_url": failed_seed,
+                        },
+                    )
+                run_status = "partial_failure" if failed_seeds else "success"
                 finish_crawl_run(
                     connection,
                     run_id=crawl_run_id,
-                    status="success",
+                    status=run_status,
                     discovered_count=len(canonical_urls),
+                    error_message=(
+                        f"seed expansion failed for {len(failed_seeds)} seed(s)"
+                        if failed_seeds
+                        else None
+                    ),
                     log_path=relative_log_path,
                 )
                 _append_log(
@@ -419,11 +582,12 @@ def run_discovery(
                         "crawl_run_id": crawl_run_id,
                         "source_key": source_definition.source_key,
                         "source_type": source_definition.source_type,
-                        "status": "success",
+                        "status": run_status,
                         "discovered_count": len(canonical_urls),
                         "inserted_count": inserted_count,
                         "log_path": relative_log_path,
                         "max_depth": source_definition.max_depth,
+                        "failed_seed_count": len(failed_seeds),
                     },
                 )
             except Exception as exc:
@@ -446,7 +610,20 @@ def run_discovery(
                     error_message=str(exc),
                     log_path=relative_log_path,
                 )
-                raise
+                results.append(
+                    DiscoveryResult(
+                        source_key=source_definition.source_key,
+                        source_type=source_definition.source_type,
+                        crawl_run_id=crawl_run_id,
+                        discovered_count=0,
+                        inserted_count=0,
+                        log_path=relative_log_path,
+                        status="failed",
+                        max_depth=source_definition.max_depth,
+                        error_message=str(exc),
+                    )
+                )
+                continue
 
             results.append(
                 DiscoveryResult(
@@ -456,8 +633,13 @@ def run_discovery(
                     discovered_count=len(canonical_urls),
                     inserted_count=inserted_count,
                     log_path=relative_log_path,
-                    status="success",
+                    status=run_status,
                     max_depth=source_definition.max_depth,
+                    error_message=(
+                        f"seed expansion failed for {len(failed_seeds)} seed(s)"
+                        if failed_seeds
+                        else None
+                    ),
                 )
             )
 

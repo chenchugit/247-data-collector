@@ -314,3 +314,54 @@ def test_run_pipeline_once_passes_analysis_limit_per_source(tmp_path: Path) -> N
 
     assert result.status == "success"
     assert received_limits == [2]
+
+
+def test_run_pipeline_once_continues_past_failed_discovery_source(tmp_path: Path) -> None:
+    calls: list[tuple[str, str]] = []
+
+    class _Result:
+        def __init__(self, source_key: str, crawl_run_id: int, status: str = "success") -> None:
+            self.source_key = source_key
+            self.source_type = "seed"
+            self.crawl_run_id = crawl_run_id
+            self.status = status
+            self.discovered_count = 0
+            self.inserted_count = 0
+            self.log_path = f"data/logs/{source_key}-{crawl_run_id}.log"
+            self.max_depth = 1
+            self.error_message = "fixture failure" if status == "failed" else None
+
+    def fake_discovery_stage(**kwargs):
+        return [
+            _Result("bad-source", 1, "failed"),
+            _Result("good-source", 2, "success"),
+        ]
+
+    def fake_fetch_stage(**kwargs):
+        calls.append(("fetch", kwargs["source_key"]))
+        return _Result(kwargs["source_key"], 3)
+
+    def fake_extract_stage(**kwargs):
+        calls.append(("extract", kwargs["source_key"]))
+        return _Result(kwargs["source_key"], 4)
+
+    result = run_pipeline_once(
+        database_path=tmp_path / "runtime-discovery-failure.sqlite3",
+        log_dir=tmp_path / "data" / "logs",
+        run_analysis=False,
+        run_discovery_stage=fake_discovery_stage,
+        run_fetch_stage=fake_fetch_stage,
+        run_extract_stage=fake_extract_stage,
+    )
+
+    assert result.status == "partial_failure"
+    assert result.source_count == 2
+    assert result.failed_source_count == 1
+    assert [(item.source_key, item.status) for item in result.sources] == [
+        ("bad-source", "failed"),
+        ("good-source", "success"),
+    ]
+    assert calls == [
+        ("fetch", "good-source"),
+        ("extract", "good-source"),
+    ]

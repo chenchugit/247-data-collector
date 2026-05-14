@@ -3,7 +3,7 @@ from pathlib import Path
 import threading
 
 from app.db import connect_db, init_db, record_discovered_documents, upsert_source
-from app.fetch import run_fetch
+from app.fetch import RawFetchSpider, run_fetch
 
 
 class _FixtureHandler(BaseHTTPRequestHandler):
@@ -48,6 +48,20 @@ class _FixtureHandler(BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:
         return
+
+
+def test_raw_fetch_spider_uses_modest_timeout_and_transient_retries() -> None:
+    assert RawFetchSpider.custom_settings["DOWNLOAD_TIMEOUT"] == 30
+    assert RawFetchSpider.custom_settings["RETRY_ENABLED"] is True
+    assert RawFetchSpider.custom_settings["RETRY_TIMES"] == 1
+    assert RawFetchSpider.custom_settings["RETRY_HTTP_CODES"] == [
+        408,
+        429,
+        500,
+        502,
+        503,
+        504,
+    ]
 
 
 def test_run_fetch_persists_raw_updates_fetch_status_and_marks_browser_escalation(tmp_path: Path) -> None:

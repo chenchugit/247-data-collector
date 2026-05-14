@@ -319,6 +319,24 @@ def update_document_fetch_state(
     )
 
 
+def requeue_document_for_fetch(
+    connection: sqlite3.Connection,
+    *,
+    document_id: int,
+) -> None:
+    connection.execute(
+        """
+        UPDATE documents
+        SET fetch_status = 'discovered',
+            extract_status = 'pending',
+            current_raw_path = NULL,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        """,
+        (document_id,),
+    )
+
+
 def list_documents_for_extract(
     connection: sqlite3.Connection,
     *,

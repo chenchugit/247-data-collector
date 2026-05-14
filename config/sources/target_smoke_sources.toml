@@ -87,6 +87,9 @@ title = "Hugging Face Blog"
 seeds = [
   "https://huggingface.co/blog",
 ]
+deny_url_patterns = [
+  "^https://huggingface\\.co/(login|join|logout|settings|account|oauth)(/|\\?|$)",
+]
 
 [[sources]]
 source_key = "github-changelog"
@@ -131,6 +134,14 @@ title = "OpenAI News"
 seeds = [
   "https://openai.com/news/",
 ]
+allow_url_patterns = [
+  "^https://openai\\.com/index/[^/?#]+/?$",
+]
+deny_url_patterns = [
+  "^https://openai\\.com/news/?$",
+  "^https://openai\\.com/news/\\?",
+  "^https://openai\\.com/(about|api|business|careers|chatgpt|policies|research|sora)(/|$)",
+]
 
 [[sources]]
 source_key = "anthropic-news"
@@ -146,6 +157,14 @@ source_type = "seed"
 title = "PyTorch Blog"
 seeds = [
   "https://pytorch.org/blog/",
+]
+allow_url_patterns = [
+  "^https://pytorch\\.org/blog/[^/?#]+/?$",
+]
+deny_url_patterns = [
+  "^https://pytorch\\.org/blog/?$",
+  "^https://pytorch\\.org/(community|docs|features|forums|foundation|resources|tutorials|webinars)(/|$)",
+  "^https://pytorch\\.org/(get-started|projects)(/|$)",
 ]
 
 [[sources]]
