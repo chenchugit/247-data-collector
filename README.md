@@ -470,7 +470,321 @@ uv run python scripts/run_regression.py
 - 当前代码已经真实具备的能力
 - 当前还没有被文档夸大成“已部署完成”的部分
 
-## 16. 开发笔记本与目标机边界
+## 16. Current Optimization Status And Technical Notes
+
+As of the latest development-laptop validation, the project has moved from
+pipeline survivability work into content-quality and source-quality refinement.
+
+The fixed architecture remains unchanged:
+
+```text
+source config
+-> discovery
+-> documents table
+-> fetch
+-> data/raw/
+-> extract
+-> data/cleaned/
+-> analysis
+-> data/derived/
+```
+
+The important status change is that the fetch layer is no longer the main
+bottleneck. Recent runs show that several previously unstable sources now
+complete fetch successfully and fail later, mostly at extraction quality gates.
+
+### Latest Observed Runtime Status
+
+| Source | Fetch Stage | Extract Stage | Meaning |
+|---|---:|---:|---|
+| `anthropic-news` | `success` | `partial_failure` | Fetch timeout instability is improved; remaining failures are extract/content-quality related |
+| `huggingface-blog` | `success` | `partial_failure` | Fetch succeeds; remaining issue is source filtering and page usefulness |
+| `google-research-blog` | `success` | `partial_failure` | Fetch succeeds; remaining issue is extractor compatibility with some pages |
+
+The pipeline status has shifted:
+
+```text
+Before:
+discovery quality problems
+-> invalid/low-value candidates
+-> fetch failures/timeouts
+-> runtime instability
+
+Now:
+discovery and fetch mostly survive
+-> extraction rejects low-value or hard-to-clean pages
+-> remaining work is source tuning and extraction quality refinement
+```
+
+### Technical Changes Already Applied
+
+| Layer | File Area | Technical Change | Result |
+|---|---|---|---|
+| Discovery | `app/discovery.py` | Seed discovery now fetches seed/index pages and extracts same-domain child URLs | Seed sources no longer only return configured seed URLs |
+| Discovery | `app/discovery.py` | Added bounded seed traversal with `max_depth` | Seed crawling remains controlled and does not become broad crawling |
+| Discovery | `app/discovery.py` | Added per-source `allow_url_patterns` and `deny_url_patterns` | Source configs can narrow article candidates without changing code |
+| Discovery | `app/discovery.py` | Added raw child-link rejection before normalization | Invalid hrefs do not become document candidates |
+| Discovery | `app/discovery.py` | Added sitemapindex recursion | Child sitemap XML files are read recursively and final content URLs are returned |
+| Discovery | `app/discovery.py` | Treats `llms.txt` as a discovery index | Docs sources can expand into real documentation URLs |
+| Discovery | `app/discovery.py` | Discovery HTTP reads use `Request` headers and handle `HTTPError` / `URLError` | 403/429/5xx seed expansion failures degrade instead of crashing the whole runtime |
+| Fetch | `app/fetch.py` | Increased `DOWNLOAD_TIMEOUT` from `10` to `30` seconds | Slow legitimate pages have more time to complete |
+| Fetch | `app/fetch.py` | Enabled Scrapy retry middleware with `RETRY_TIMES = 1` | Transient failures get one retry |
+| Fetch | `app/fetch.py` | Retries only transient HTTP codes: `408`, `429`, `500`, `502`, `503`, `504` | Retry behavior is narrow and does not hide persistent bad URLs |
+| Extract | `app/extract.py` | Kept Trafilatura-first HTML path | Existing article extraction behavior remains intact |
+| Extract | `app/extract.py` | Added textlike/markdown extraction path for `.md`, `.txt`, `.rst`, etc. | `llms.txt`-expanded docs pages can produce cleaned markdown/text |
+| Extract | `app/extract.py` | Added low-quality rejection status such as `rejected_low_quality` | Thin landing pages and low-value pages are not silently marked successful |
+| Extract | `app/extract.py` | Missing raw artifacts are requeued for fetch | Stale `current_raw_path` values no longer trap documents in terminal extract failure |
+| Analysis | `app/analysis.py` | Summary generation skips unchanged cleaned content for same model/prompt | Repeated runs avoid unnecessary Ollama work |
+| Runtime | `app/runtime.py` | Added `--skip-analysis` | Collection can run without forcing summary generation |
+| Runtime | `app/runtime.py` | Added `--analysis-limit-per-source` | Analysis can be capped for limited hardware |
+| Runtime | `app/runtime.py` | Added repeatable `--source-key` | Operators can target a subset of sources |
+
+### Current Fetch Settings
+
+The fetch layer currently uses Scrapy as the primary fetch engine.
+
+```python
+DOWNLOAD_TIMEOUT = 30
+RETRY_ENABLED = True
+RETRY_TIMES = 1
+RETRY_HTTP_CODES = [408, 429, 500, 502, 503, 504]
+```
+
+This is intentionally modest. It gives slow or transient pages a better chance
+without turning fetch into a broad masking layer for discovery problems.
+
+Playwright remains a secondary escalation path only. Fetch still processes
+documents that discovery has already inserted; it does not perform document
+discovery.
+
+### Current Discovery Filtering Model
+
+Discovery filtering now has three layers:
+
+```text
+raw href validity filter
+-> same-domain filter
+-> default + source-specific content filters
+```
+
+Raw hrefs are rejected before `urljoin()`, normalization, or database insertion
+when they are:
+
+- empty
+- whitespace-only
+- hash-only
+- `javascript:` links
+- pseudo-links like `javascript(0):void`
+- `void(0)` links
+- `mailto:` links
+- `tel:` links
+
+Default content filtering rejects common low-value paths such as:
+
+- tag/category/search pages
+- feed/rss/atom pages
+- sitemap links
+- author/about/contact/privacy/terms pages
+- archive and pagination pages
+- static or binary file extensions
+
+Source-specific filtering is configured in
+`config/sources/target_smoke_sources.toml`.
+
+Example source-specific rules:
+
+```toml
+[[sources]]
+source_key = "openai-news"
+allow_url_patterns = [
+  "^https://openai\\.com/index/[^/?#]+/?$",
+]
+deny_url_patterns = [
+  "^https://openai\\.com/news/?$",
+  "^https://openai\\.com/news/\\?",
+  "^https://openai\\.com/(about|api|business|careers|chatgpt|policies|research|sora)(/|$)",
+]
+```
+
+```toml
+[[sources]]
+source_key = "pytorch-blog"
+allow_url_patterns = [
+  "^https://pytorch\\.org/blog/[^/?#]+/?$",
+]
+deny_url_patterns = [
+  "^https://pytorch\\.org/blog/?$",
+  "^https://pytorch\\.org/(community|docs|features|forums|foundation|resources|tutorials|webinars)(/|$)",
+  "^https://pytorch\\.org/(get-started|projects)(/|$)",
+]
+```
+
+```toml
+[[sources]]
+source_key = "huggingface-blog"
+deny_url_patterns = [
+  "^https://huggingface\\.co/(login|join|logout|settings|account|oauth)(/|\\?|$)",
+]
+```
+
+### Current Extraction Model
+
+Extraction is intentionally split by content shape.
+
+For HTML/article-like pages:
+
+```text
+raw HTML
+-> Trafilatura
+-> fallback HTML parser if needed
+-> quality gate
+-> data/cleaned/
+```
+
+For markdown/textlike pages:
+
+```text
+raw .md/.txt/.rst or textlike content
+-> UTF-8 decode with replacement
+-> line-ending normalization
+-> blank-line cleanup
+-> title inference from first heading/short first line
+-> quality gate
+-> data/cleaned/
+```
+
+The quality gate rejects:
+
+- too-short cleaned content
+- too-few-word cleaned content
+- nav-heavy fallback HTML output
+- empty or near-empty markdown/textlike output
+- thin landing-page style content
+
+This means an extract `partial_failure` is not automatically a pipeline failure.
+It often means the extractor correctly rejected low-value pages.
+
+### Current Database Recovery Behavior
+
+The `documents` table remains the canonical processing index. Large bodies are
+still stored on disk.
+
+Important current status fields:
+
+```text
+documents.fetch_status
+documents.extract_status
+documents.current_raw_path
+documents.current_cleaned_path
+```
+
+If extraction sees a stale `current_raw_path` that no longer exists on disk, the
+document is recovered by clearing the raw pointer and returning it to the fetch
+queue:
+
+```text
+fetch_status = 'discovered'
+extract_status = 'pending'
+current_raw_path = NULL
+```
+
+This allows a later fetch run to recover the document without schema redesign.
+
+### Current Runtime Controls
+
+The runtime CLI supports bounded operation:
+
+```cmd
+uv run python -m app.runtime --skip-analysis
+```
+
+Runs:
+
+```text
+discovery -> fetch -> extract
+```
+
+and skips:
+
+```text
+analysis -> Ollama -> data/derived/
+```
+
+For capped analysis:
+
+```cmd
+uv run python -m app.runtime --analysis-limit-per-source 5
+```
+
+For targeted runs:
+
+```cmd
+uv run python -m app.runtime --source-key openai-news --analysis-limit-per-source 5
+```
+
+Multiple source keys can be passed:
+
+```cmd
+uv run python -m app.runtime --source-key openai-news --source-key pytorch-blog --skip-analysis
+```
+
+### Recommended Operating Mode
+
+At this stage, broad architecture work should stop unless a real target-machine
+failure proves it necessary.
+
+Recommended collection-only run:
+
+```cmd
+set AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml
+set AUTO_SCRAPY_OLLAMA_MODEL=qwen2.5-coder:7b
+uv run python -m app.runtime --skip-analysis > nightly_collection.log 2>&1
+```
+
+Recommended capped analysis run:
+
+```cmd
+set AUTO_SCRAPY_SOURCES_CONFIG_PATH=config/sources/target_smoke_sources.toml
+set AUTO_SCRAPY_OLLAMA_MODEL=qwen2.5-coder:7b
+uv run python -m app.runtime --analysis-limit-per-source 5 > runtime_full_with_analysis_capped.log 2>&1
+```
+
+Recommended selective analysis:
+
+```cmd
+uv run python -m app.runtime --source-key openai-news --analysis-limit-per-source 5
+uv run python -m app.runtime --source-key pytorch-blog --analysis-limit-per-source 5
+```
+
+### Remaining Technical Work
+
+The remaining work is mostly source-quality and extractor-quality refinement,
+not pipeline survival.
+
+| Area | Possible Work | Reason |
+|---|---|---|
+| Hugging Face | Add a stricter blog allow pattern if needed | Prevent broad `/models`, `/spaces`, login/account, or docs-like pages from entering the dataset |
+| Google Research | Inspect failed raw artifacts and cleaned failures | Some pages may be JS-heavy, thin, or not article-shaped |
+| Anthropic | Inspect partial extraction failures | Some URLs may be index/policy/news listing pages rather than article pages |
+| Source configs | Tune allow/deny rules from real collected URLs | Improve dataset usefulness without changing architecture |
+| Extraction | Add narrow site-aware fallbacks only when justified by repeated failures | Avoid weakening the global quality gate |
+| Target machine | Run real collection and capped analysis on the 1080 Ti machine | Development-laptop tests do not prove target deployment stability |
+
+### Current Project Interpretation
+
+The project should now be understood as:
+
+```text
+A functioning local-first CS/AI web collection pipeline
+with stable enough discovery/fetch/runtime behavior for controlled use,
+but still requiring source-level and extraction-level tuning for dataset quality.
+```
+
+It should not yet be described as fully production-validated on the target
+1080 Ti machine until the same runtime paths have been executed and observed
+there without Codex.
+
+## 17. 开发笔记本与目标机边界
 
 当前 README 只描述这个实现目录已经具备的代码与作者机级验证入口。
 
@@ -488,7 +802,7 @@ uv run python scripts/run_regression.py
 
 - **DEPLOY_TARGET.md**
 
-## 17. 相关文档
+## 18. 相关文档
 
 当前实现目录相关说明文件：
 
