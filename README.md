@@ -784,7 +784,48 @@ It should not yet be described as fully production-validated on the target
 1080 Ti machine until the same runtime paths have been executed and observed
 there without Codex.
 
-## 17. 开发笔记本与目标机边界
+## 17. Ultimate Deployment Model
+
+The intended target-machine deployment is a `systemd`-scheduled bounded runtime,
+not a permanent Python crawler loop.
+
+`app.runtime` should run once and exit:
+
+```text
+discovery -> fetch -> extract -> optional analysis
+```
+
+Long-running behavior belongs to `systemd` timers and services:
+
+| Component | Role | Recommended Mode |
+|---|---|---|
+| `ollama` | Local model API server | long-running system service |
+| `auto-scrapy-collection.service` | Runs `discovery -> fetch -> extract` | oneshot |
+| `auto-scrapy-collection.timer` | Schedules collection | enabled at boot |
+| `auto-scrapy-analysis.service` | Runs capped Ollama analysis | manual first |
+| `auto-scrapy-analysis.timer` | Optional scheduled capped analysis | add only after safe manual runs |
+| `auto-scrapy-ui.service` | Optional local Flask browsing UI | bind to `127.0.0.1` |
+
+The recommended production posture is:
+
+```text
+daily collection with --skip-analysis
+manual or low-frequency capped analysis with --analysis-limit-per-source
+optional local-only Flask UI
+no uncapped automatic analysis on the 1080 Ti
+```
+
+The detailed Ubuntu/systemd deployment guide, including environment file
+templates, service templates, timer templates, monitoring commands, and
+target-machine done criteria, is maintained in:
+
+- **DEPLOY_TARGET.md**
+
+This README only summarizes the deployment model. Target-machine validation is
+not complete until the commands in `DEPLOY_TARGET.md` have been run and observed
+on the actual Ubuntu 1080 Ti machine.
+
+## 18. 开发笔记本与目标机边界
 
 当前 README 只描述这个实现目录已经具备的代码与作者机级验证入口。
 
@@ -802,7 +843,7 @@ there without Codex.
 
 - **DEPLOY_TARGET.md**
 
-## 18. 相关文档
+## 19. 相关文档
 
 当前实现目录相关说明文件：
 
