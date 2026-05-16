@@ -1,0 +1,12 @@
+[Unit]
+Description=Schedule bounded auto-scrapy runtime runs
+
+[Timer]
+# Format: DayOfWeek Year-Month-Day Hour:Minute:Second
+OnCalendar=*-*-* 12:00:00
+# Run immediately if the PC was off during the scheduled noon slot
+Persistent=true
+Unit=auto-scrapy-runtime.service
+
+[Install]
+WantedBy=timers.target

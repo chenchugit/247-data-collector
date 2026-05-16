@@ -4,7 +4,8 @@ Description=Schedule bounded auto-scrapy runtime runs
 [Timer]
 # Wait 5 mins after boot to avoid startup congestion
 OnBootSec=5m
-OnUnitActiveSec=1m
+# Run every 3 hours after the previous run finishes
+OnUnitActiveSec=3h
 Unit=auto-scrapy-runtime.service
 
 [Install]
